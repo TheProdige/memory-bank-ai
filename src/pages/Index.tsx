@@ -53,9 +53,11 @@ const Index = () => {
               Dépose tes idées. Reprends tes souvenirs. Ne perds plus jamais une pensée.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
-              <Button size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground shadow-gold-glow">
-                Créer mon compte gratuitement
-                <ArrowRight className="ml-2 w-5 h-5" />
+              <Button size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground shadow-gold-glow" asChild>
+                <a href="/auth">
+                  Créer mon compte gratuitement
+                  <ArrowRight className="ml-2 w-5 h-5" />
+                </a>
               </Button>
               <Button size="lg" variant="outline" className="border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/10">
                 <Play className="mr-2 w-5 h-5" />
