@@ -14,7 +14,78 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      memories: {
+        Row: {
+          audio_url: string | null
+          created_at: string | null
+          emotion: string | null
+          id: string
+          summary: string | null
+          tags: string[] | null
+          title: string | null
+          transcript: string | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          audio_url?: string | null
+          created_at?: string | null
+          emotion?: string | null
+          id?: string
+          summary?: string | null
+          tags?: string[] | null
+          title?: string | null
+          transcript?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          audio_url?: string | null
+          created_at?: string | null
+          emotion?: string | null
+          id?: string
+          summary?: string | null
+          tags?: string[] | null
+          title?: string | null
+          transcript?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string | null
+          display_name: string | null
+          id: string
+          memories_count: number | null
+          subscription_tier: string | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          id?: string
+          memories_count?: number | null
+          subscription_tier?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          id?: string
+          memories_count?: number | null
+          subscription_tier?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
