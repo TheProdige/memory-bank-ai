@@ -1,8 +1,9 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import AudioRecorder from "@/components/AudioRecorder";
 import { 
   Vault, 
   Plus, 
@@ -11,13 +12,50 @@ import {
   Settings, 
   LogOut,
   User,
-  Calendar
+  Calendar,
+  Clock,
+  Tag,
+  Heart
 } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 const Dashboard = () => {
   const { user, signOut } = useAuth();
   const [isRecording, setIsRecording] = useState(false);
+  const [memories, setMemories] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showRecorder, setShowRecorder] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      fetchMemories();
+    }
+  }, [user]);
+
+  const fetchMemories = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('memories')
+        .select('*')
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setMemories(data || []);
+    } catch (error) {
+      console.error('Error fetching memories:', error);
+      toast.error("Erreur lors du chargement des souvenirs");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleMemoryCreated = (newMemory: any) => {
+    setMemories(prev => [newMemory, ...prev]);
+    setShowRecorder(false);
+    fetchMemories(); // Refresh to get updated count
+  };
 
   const handleSignOut = async () => {
     try {
@@ -29,13 +67,7 @@ const Dashboard = () => {
   };
 
   const startRecording = () => {
-    setIsRecording(true);
-    // TODO: Implement audio recording
-    toast.info("Fonctionnalité d'enregistrement à venir...");
-  };
-
-  const stopRecording = () => {
-    setIsRecording(false);
+    setShowRecorder(true);
   };
 
   return (
@@ -88,9 +120,9 @@ const Dashboard = () => {
                 <Calendar className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">0</div>
+                <div className="text-2xl font-bold">{memories.length}</div>
                 <p className="text-xs text-muted-foreground">
-                  +0 ce mois-ci
+                  +{memories.filter(m => new Date(m.created_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).length} ce mois-ci
                 </p>
               </CardContent>
             </Card>
@@ -116,7 +148,7 @@ const Dashboard = () => {
               <CardContent>
                 <div className="text-2xl font-bold">Gratuit</div>
                 <p className="text-xs text-muted-foreground">
-                  10/10 souvenirs restants
+                  {10 - memories.length}/10 souvenirs restants
                 </p>
               </CardContent>
             </Card>
@@ -124,72 +156,131 @@ const Dashboard = () => {
 
           {/* Main Action Section */}
           <div className="max-w-2xl mx-auto w-full">
-            <Card className="shadow-elegant border-accent/20">
-              <CardHeader className="text-center">
-                <CardTitle className="text-2xl">Créer un nouveau souvenir</CardTitle>
-                <p className="text-muted-foreground">
-                  Enregistrez vos pensées, idées ou conversations importantes
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Recording Button */}
-                <div className="text-center">
-                  <Button
-                    size="lg"
-                    onClick={isRecording ? stopRecording : startRecording}
-                    className={`h-16 w-16 rounded-full ${
-                      isRecording 
-                        ? "bg-destructive hover:bg-destructive/90" 
-                        : "bg-accent hover:bg-accent/90"
-                    } shadow-gold-glow`}
-                  >
-                    <Mic className={`w-8 h-8 ${isRecording ? "animate-pulse" : ""}`} />
-                  </Button>
-                  <p className="mt-4 text-sm text-muted-foreground">
-                    {isRecording ? "Enregistrement en cours... Cliquez pour arrêter" : "Cliquez pour commencer l'enregistrement"}
+            {showRecorder ? (
+              <AudioRecorder onMemoryCreated={handleMemoryCreated} />
+            ) : (
+              <Card className="shadow-elegant border-accent/20">
+                <CardHeader className="text-center">
+                  <CardTitle className="text-2xl">Créer un nouveau souvenir</CardTitle>
+                  <p className="text-muted-foreground">
+                    Enregistrez vos pensées, idées ou conversations importantes
                   </p>
-                </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Recording Button */}
+                  <div className="text-center">
+                    <Button
+                      size="lg"
+                      onClick={startRecording}
+                      disabled={memories.length >= 10}
+                      className="h-16 w-16 rounded-full bg-accent hover:bg-accent/90 shadow-gold-glow"
+                    >
+                      <Mic className="w-8 h-8" />
+                    </Button>
+                    <p className="mt-4 text-sm text-muted-foreground">
+                      {memories.length >= 10 
+                        ? "Limite gratuite atteinte - Passez au plan Pro" 
+                        : "Cliquez pour commencer l'enregistrement"
+                      }
+                    </p>
+                  </div>
 
-                {/* Alternative Options */}
-                <div className="grid grid-cols-2 gap-4">
-                  <Button variant="outline" className="h-12">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Importer un fichier
-                  </Button>
-                  <Button variant="outline" className="h-12">
-                    <Search className="w-4 h-4 mr-2" />
-                    Rechercher
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                  {/* Alternative Options */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <Button variant="outline" className="h-12" disabled>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Importer un fichier
+                    </Button>
+                    <Button variant="outline" className="h-12">
+                      <Search className="w-4 h-4 mr-2" />
+                      Rechercher
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           {/* Recent Memories */}
           <div className="space-y-6">
             <h2 className="text-2xl font-bold">Souvenirs récents</h2>
-            <Card className="shadow-elegant">
-              <CardContent className="p-8 text-center">
-                <div className="space-y-4">
-                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mx-auto">
-                    <Mic className="w-8 h-8 text-muted-foreground" />
+            {loading ? (
+              <Card className="shadow-elegant">
+                <CardContent className="p-8 text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mx-auto mb-4"></div>
+                  <p className="text-muted-foreground">Chargement...</p>
+                </CardContent>
+              </Card>
+            ) : memories.length === 0 ? (
+              <Card className="shadow-elegant">
+                <CardContent className="p-8 text-center">
+                  <div className="space-y-4">
+                    <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mx-auto">
+                      <Mic className="w-8 h-8 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold">Aucun souvenir encore</h3>
+                      <p className="text-muted-foreground">
+                        Commencez par enregistrer votre première pensée !
+                      </p>
+                    </div>
+                    <Button 
+                      onClick={startRecording}
+                      className="bg-accent hover:bg-accent/90 text-accent-foreground"
+                    >
+                      <Mic className="w-4 h-4 mr-2" />
+                      Créer mon premier souvenir
+                    </Button>
                   </div>
-                  <div>
-                    <h3 className="text-lg font-semibold">Aucun souvenir encore</h3>
-                    <p className="text-muted-foreground">
-                      Commencez par enregistrer votre première pensée !
-                    </p>
-                  </div>
-                  <Button 
-                    onClick={startRecording}
-                    className="bg-accent hover:bg-accent/90 text-accent-foreground"
-                  >
-                    <Mic className="w-4 h-4 mr-2" />
-                    Créer mon premier souvenir
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-4">
+                {memories.map((memory) => (
+                  <Card key={memory.id} className="shadow-elegant hover:shadow-gold-glow transition-all duration-300">
+                    <CardContent className="p-6">
+                      <div className="flex justify-between items-start mb-3">
+                        <h3 className="font-semibold text-lg">{memory.title}</h3>
+                        <div className="flex items-center gap-2">
+                          {memory.emotion && (
+                            <Badge variant="secondary" className="text-xs">
+                              <Heart className="w-3 h-3 mr-1" />
+                              {memory.emotion}
+                            </Badge>
+                          )}
+                          <Badge variant="outline" className="text-xs">
+                            <Clock className="w-3 h-3 mr-1" />
+                            {new Date(memory.created_at).toLocaleDateString()}
+                          </Badge>
+                        </div>
+                      </div>
+                      
+                      <p className="text-muted-foreground mb-3 line-clamp-2">
+                        {memory.summary || memory.transcript}
+                      </p>
+                      
+                      {memory.tags && memory.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-3">
+                          {memory.tags.map((tag: string, index: number) => (
+                            <Badge key={index} variant="outline" className="text-xs">
+                              <Tag className="w-3 h-3 mr-1" />
+                              {tag}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                      
+                      <div className="flex justify-between items-center text-sm text-muted-foreground">
+                        <span>{new Date(memory.created_at).toLocaleString()}</span>
+                        <Button variant="outline" size="sm">
+                          Voir détails
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

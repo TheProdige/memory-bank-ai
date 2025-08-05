@@ -1,1 +1,7 @@
 project_id = "wwaldqgsedruplukxqdf"
+
+[functions.transcribe-audio]
+verify_jwt = false
+
+[functions.process-memory]
+verify_jwt = false
