@@ -26,11 +26,13 @@ const Index = () => {
             </div>
             <span className="text-xl font-bold">EchoVault AI</span>
           </div>
-          <nav className="hidden md:flex items-center space-x-6">
+            <nav className="hidden md:flex items-center space-x-6">
             <a href="#features" className="text-sm font-medium hover:text-accent transition-colors">Features</a>
             <a href="#pricing" className="text-sm font-medium hover:text-accent transition-colors">Pricing</a>
             <a href="#faq" className="text-sm font-medium hover:text-accent transition-colors">FAQ</a>
-            <Button size="sm">Get Started</Button>
+            <Button size="sm" asChild>
+              <a href="/auth">Get Started</a>
+            </Button>
           </nav>
         </div>
       </header>
@@ -230,8 +232,8 @@ const Index = () => {
                     Recherche basique
                   </li>
                 </ul>
-                <Button className="w-full" variant="outline">
-                  Commencer gratuitement
+                <Button className="w-full" variant="outline" asChild>
+                  <a href="/auth">Commencer gratuitement</a>
                 </Button>
               </CardContent>
             </Card>
@@ -268,8 +270,8 @@ const Index = () => {
                     Support prioritaire
                   </li>
                 </ul>
-                <Button className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
-                  Upgrader vers Pro
+                <Button className="w-full bg-accent hover:bg-accent/90 text-accent-foreground" asChild>
+                  <a href="/auth">Upgrader vers Pro</a>
                 </Button>
               </CardContent>
             </Card>
@@ -339,9 +341,11 @@ const Index = () => {
             <p className="text-xl text-primary-foreground/80 mb-8">
               Rejoins les milliers d'utilisateurs qui ont déjà révolutionné leur façon de penser et de se souvenir.
             </p>
-            <Button size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground shadow-gold-glow">
-              Créer mon compte gratuitement
-              <ArrowRight className="ml-2 w-5 h-5" />
+            <Button size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground shadow-gold-glow" asChild>
+              <a href="/auth">
+                Créer mon compte gratuitement
+                <ArrowRight className="ml-2 w-5 h-5" />
+              </a>
             </Button>
           </div>
         </div>

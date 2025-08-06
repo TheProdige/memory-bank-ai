@@ -5,6 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FileUpload } from "./FileUpload";
+import { useUsageLimits } from "@/hooks/useUsageLimits";
 import { 
   Mic, 
   Square, 
@@ -15,7 +19,12 @@ import {
   Volume2,
   Tag,
   Heart,
-  X
+  X,
+  Save,
+  Zap,
+  AlertTriangle,
+  CheckCircle,
+  Timer
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -25,19 +34,39 @@ interface AudioRecorderProps {
 }
 
 const AudioRecorder: React.FC<AudioRecorderProps> = ({ onMemoryCreated }) => {
+  const { canCreateMemory, dailyUsed, dailyLimit, incrementUsage } = useUsageLimits();
+  
+  // Recording states
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [recordingVolume, setRecordingVolume] = useState(0);
+  
+  // Processing states
   const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressStep, setProgressStep] = useState("");
+  
+  // Audio states
   const [audioURL, setAudioURL] = useState<string | null>(null);
-  const [transcript, setTranscript] = useState("");
-  const [title, setTitle] = useState("");
+  const [audioFile, setAudioFile] = useState<File | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  
+  // Content states
+  const [transcript, setTranscript] = useState("");
+  const [title, setTitle] = useState("");
+  const [isAutoTitle, setIsAutoTitle] = useState(true);
+  
+  // Local storage fallback
+  const [localBackup, setLocalBackup] = useState<any>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const volumeAnalyserRef = useRef<AnalyserNode | null>(null);
 
   useEffect(() => {
     return () => {
