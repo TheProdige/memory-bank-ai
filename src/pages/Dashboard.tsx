@@ -1,9 +1,14 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import AudioRecorder from "@/components/AudioRecorder";
+import { FloatingRecordButton } from "@/components/FloatingRecordButton";
+import { UsageIndicator } from "@/components/UsageIndicator";
+import { useMemories } from "@/hooks/useMemories";
+import { useUsageLimits } from "@/hooks/useUsageLimits";
 import { 
   Vault, 
   Plus, 
@@ -15,46 +20,22 @@ import {
   Calendar,
   Clock,
   Tag,
-  Heart
+  Heart,
+  ArrowRight,
+  Brain
 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 
 const Dashboard = () => {
   const { user, signOut } = useAuth();
-  const [isRecording, setIsRecording] = useState(false);
-  const [memories, setMemories] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  const { memories, loading, addMemory } = useMemories();
+  const { canCreateMemory, dailyUsed, dailyLimit, memoriesCount } = useUsageLimits();
   const [showRecorder, setShowRecorder] = useState(false);
 
-  useEffect(() => {
-    if (user) {
-      fetchMemories();
-    }
-  }, [user]);
-
-  const fetchMemories = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('memories')
-        .select('*')
-        .eq('user_id', user?.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setMemories(data || []);
-    } catch (error) {
-      console.error('Error fetching memories:', error);
-      toast.error("Erreur lors du chargement des souvenirs");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleMemoryCreated = (newMemory: any) => {
-    setMemories(prev => [newMemory, ...prev]);
+    addMemory(newMemory);
     setShowRecorder(false);
-    fetchMemories(); // Refresh to get updated count
   };
 
   const handleSignOut = async () => {
@@ -67,6 +48,10 @@ const Dashboard = () => {
   };
 
   const startRecording = () => {
+    if (!canCreateMemory) {
+      toast.error(`Limite quotidienne atteinte (${dailyUsed}/${dailyLimit}). Revenez demain ou passez Pro !`);
+      return;
+    }
     setShowRecorder(true);
   };
 
@@ -88,7 +73,8 @@ const Dashboard = () => {
                 {user?.user_metadata?.display_name || user?.email}
               </span>
             </div>
-            <Button variant="outline" size="sm">
+            <UsageIndicator variant="compact" />
+            <Button variant="outline" size="sm" onClick={() => navigate('/settings')}>
               <Settings className="w-4 h-4 mr-2" />
               Paramètres
             </Button>
@@ -113,29 +99,44 @@ const Dashboard = () => {
           </div>
 
           {/* Stats Cards */}
-          <div className="grid md:grid-cols-3 gap-6">
+          <div className="grid md:grid-cols-4 gap-6">
             <Card className="shadow-elegant">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Souvenirs enregistrés</CardTitle>
-                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm font-medium">Total souvenirs</CardTitle>
+                <Brain className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{memories.length}</div>
+                <div className="text-2xl font-bold">{memoriesCount}</div>
                 <p className="text-xs text-muted-foreground">
-                  +{memories.filter(m => new Date(m.created_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).length} ce mois-ci
+                  Toutes vos mémoires
                 </p>
               </CardContent>
             </Card>
 
             <Card className="shadow-elegant">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Temps d'écoute</CardTitle>
+                <CardTitle className="text-sm font-medium">Usage quotidien</CardTitle>
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{dailyUsed}/{dailyLimit}</div>
+                <p className="text-xs text-muted-foreground">
+                  Enregistrements aujourd'hui
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-elegant">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Ce mois-ci</CardTitle>
                 <Mic className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">0h 0m</div>
+                <div className="text-2xl font-bold">
+                  {memories.filter(m => new Date(m.created_at) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).length}
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  Total enregistré
+                  Nouveaux souvenirs
                 </p>
               </CardContent>
             </Card>
@@ -148,7 +149,7 @@ const Dashboard = () => {
               <CardContent>
                 <div className="text-2xl font-bold">Gratuit</div>
                 <p className="text-xs text-muted-foreground">
-                  {10 - memories.length}/10 souvenirs restants
+                  {dailyLimit - dailyUsed} crédits restants
                 </p>
               </CardContent>
             </Card>
@@ -187,13 +188,13 @@ const Dashboard = () => {
 
                   {/* Alternative Options */}
                   <div className="grid grid-cols-2 gap-4">
-                    <Button variant="outline" className="h-12" disabled>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Importer un fichier
-                    </Button>
-                    <Button variant="outline" className="h-12">
+                    <Button variant="outline" className="h-12" onClick={() => navigate('/memories')}>
                       <Search className="w-4 h-4 mr-2" />
-                      Rechercher
+                      Mes souvenirs
+                    </Button>
+                    <Button variant="outline" className="h-12" onClick={() => navigate('/settings')}>
+                      <Settings className="w-4 h-4 mr-2" />
+                      Paramètres
                     </Button>
                   </div>
                 </CardContent>
@@ -203,7 +204,15 @@ const Dashboard = () => {
 
           {/* Recent Memories */}
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold">Souvenirs récents</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold">Souvenirs récents</h2>
+              {memories.length > 0 && (
+                <Button variant="outline" onClick={() => navigate('/memories')}>
+                  Voir tous
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              )}
+            </div>
             {loading ? (
               <Card className="shadow-elegant">
                 <CardContent className="p-8 text-center">
@@ -236,7 +245,7 @@ const Dashboard = () => {
               </Card>
             ) : (
               <div className="grid gap-4">
-                {memories.map((memory) => (
+                {memories.slice(0, 3).map((memory) => (
                   <Card key={memory.id} className="shadow-elegant hover:shadow-gold-glow transition-all duration-300">
                     <CardContent className="p-6">
                       <div className="flex justify-between items-start mb-3">
@@ -261,18 +270,23 @@ const Dashboard = () => {
                       
                       {memory.tags && memory.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-3">
-                          {memory.tags.map((tag: string, index: number) => (
+                          {memory.tags.slice(0, 3).map((tag: string, index: number) => (
                             <Badge key={index} variant="outline" className="text-xs">
                               <Tag className="w-3 h-3 mr-1" />
                               {tag}
                             </Badge>
                           ))}
+                          {memory.tags.length > 3 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{memory.tags.length - 3}
+                            </Badge>
+                          )}
                         </div>
                       )}
                       
                       <div className="flex justify-between items-center text-sm text-muted-foreground">
                         <span>{new Date(memory.created_at).toLocaleString()}</span>
-                        <Button variant="outline" size="sm">
+                        <Button variant="outline" size="sm" onClick={() => navigate('/memories')}>
                           Voir détails
                         </Button>
                       </div>
@@ -284,6 +298,9 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* Floating Record Button */}
+      <FloatingRecordButton onMemoryCreated={handleMemoryCreated} />
     </div>
   );
 };

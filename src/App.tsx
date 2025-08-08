@@ -10,7 +10,7 @@ import Dashboard from "./pages/Dashboard";
 import Memories from "./pages/Memories";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
-import ProtectedRoute from "./components/ProtectedRoute";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 
 const queryClient = new QueryClient();
 

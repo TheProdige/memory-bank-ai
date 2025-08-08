@@ -1,6 +1,9 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { 
   Mic, 
   Brain, 
@@ -11,10 +14,16 @@ import {
   Check,
   ArrowRight,
   Play,
-  Vault
+  Vault,
+  Heart,
+  Clock,
+  Tag
 } from "lucide-react";
 
 const Index = () => {
+  const navigate = useNavigate();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -61,7 +70,12 @@ const Index = () => {
                   <ArrowRight className="ml-2 w-5 h-5" />
                 </a>
               </Button>
-              <Button size="lg" variant="outline" className="border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/10">
+              <Button 
+                size="lg" 
+                onClick={() => setIsModalOpen(true)}
+                variant="outline"
+                className="border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/10"
+              >
                 <Play className="mr-2 w-5 h-5" />
                 Voir la démo
               </Button>
@@ -372,6 +386,98 @@ const Index = () => {
           </div>
         </div>
       </footer>
+
+      {/* Demo Modal - Interactive simulation */}
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Découvrez EchoVault AI en action</DialogTitle>
+            <DialogDescription>
+              Simulation interactive : découvrez comment EchoVault AI transforme vos enregistrements vocaux en souvenirs structurés.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6">
+            {/* Demo Steps */}
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="text-center space-y-2">
+                <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center mx-auto">
+                  <Mic className="w-6 h-6 text-accent" />
+                </div>
+                <h3 className="font-semibold">1. Enregistrez</h3>
+                <p className="text-sm text-muted-foreground">
+                  Parlez naturellement de vos idées, pensées ou conversations importantes
+                </p>
+              </div>
+              <div className="text-center space-y-2">
+                <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center mx-auto">
+                  <Brain className="w-6 h-6 text-accent" />
+                </div>
+                <h3 className="font-semibold">2. IA analyse</h3>
+                <p className="text-sm text-muted-foreground">
+                  Notre IA transcrit, résume et extrait automatiquement les émotions et tags
+                </p>
+              </div>
+              <div className="text-center space-y-2">
+                <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center mx-auto">
+                  <Search className="w-6 h-6 text-accent" />
+                </div>
+                <h3 className="font-semibold">3. Retrouvez</h3>
+                <p className="text-sm text-muted-foreground">
+                  Recherchez et organisez vos souvenirs par tags, émotions ou contenu
+                </p>
+              </div>
+            </div>
+
+            {/* Sample Memory Card Demo */}
+            <div className="bg-muted/30 rounded-lg p-6">
+              <h4 className="font-semibold mb-4">Exemple de souvenir généré :</h4>
+              <div className="bg-background rounded-lg border shadow-sm p-4">
+                <div className="flex justify-between items-start mb-3">
+                  <h3 className="font-semibold">Idée de projet startup</h3>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="text-xs">
+                      <Heart className="w-3 h-3 mr-1" />
+                      Enthousiasme
+                    </Badge>
+                    <Badge variant="outline" className="text-xs">
+                      <Clock className="w-3 h-3 mr-1" />
+                      Aujourd'hui
+                    </Badge>
+                  </div>
+                </div>
+                
+                <p className="text-muted-foreground mb-3 text-sm">
+                  Discussion sur une application mobile pour aider les personnes âgées à rester connectées avec leur famille. L'idée inclut des rappels automatiques, un interface simplifiée et des appels vidéo assistés par IA.
+                </p>
+                
+                <div className="flex flex-wrap gap-1 mb-3">
+                  <Badge variant="outline" className="text-xs">
+                    <Tag className="w-3 h-3 mr-1" />
+                    startup
+                  </Badge>
+                  <Badge variant="outline" className="text-xs">
+                    <Tag className="w-3 h-3 mr-1" />
+                    technologie
+                  </Badge>
+                  <Badge variant="outline" className="text-xs">
+                    <Tag className="w-3 h-3 mr-1" />
+                    famille
+                  </Badge>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-center space-x-4">
+              <Button onClick={() => setIsModalOpen(false)} variant="outline">
+                Fermer
+              </Button>
+              <Button onClick={() => { setIsModalOpen(false); navigate('/auth'); }} className="bg-accent hover:bg-accent/90">
+                Commencer maintenant
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
