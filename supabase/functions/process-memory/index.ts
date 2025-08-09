@@ -50,65 +50,46 @@ serve(async (req) => {
 
     logStep("Processing transcript", { transcriptLength: transcript.length });
 
-    // Use GPT-4.1 to analyze the transcript
-    const analysisPrompt = `Analyze this audio transcript and provide:
+    // Build analysis prompt
+    const analysisPrompt = `Analyze this audio transcript and provide:\n\n1. A concise summary (max 150 words)\n2. Key topics/themes as tags (max 5 tags, single words or short phrases)\n3. Emotional tone (one of: positive, neutral, negative, excited, contemplative, stressed, happy, sad, angry, curious, motivated)\n4. A suggested title if none provided (max 50 characters)\n\nTranscript: "${transcript}"\n\nRespond in JSON format:\n{\n  "summary": "...",\n  "tags": ["tag1", "tag2", "tag3"],\n  "emotion": "emotional_tone",\n  "suggested_title": "..."\n}`;
 
-1. A concise summary (max 150 words)
-2. Key topics/themes as tags (max 5 tags, single words or short phrases)
-3. Emotional tone (one of: positive, neutral, negative, excited, contemplative, stressed, happy, sad, angry, curious, motivated)
-4. A suggested title if none provided (max 50 characters)
+    // Use centralized AI gateway (caching, routing, logging)
+    const supabaseAnon = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+    );
 
-Transcript: "${transcript}"
+    const system = 'You are an AI assistant that analyzes audio transcripts to extract meaningful insights. Always respond with valid JSON format.';
 
-Respond in JSON format:
-{
-  "summary": "...",
-  "tags": ["tag1", "tag2", "tag3"],
-  "emotion": "emotional_tone",
-  "suggested_title": "..."
-}`;
-
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4.1-2025-04-14',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an AI assistant that analyzes audio transcripts to extract meaningful insights. Always respond with valid JSON format.'
-          },
-          {
-            role: 'user',
-            content: analysisPrompt
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 500
-      }),
+    const { data: gatewayResp, error: gatewayErr } = await supabaseAnon.functions.invoke('ai-gateway', {
+      headers: { Authorization: `Bearer ${token}` },
+      body: {
+        task: {
+          type: 'chat',
+          system,
+          input: analysisPrompt,
+          complexity: 'auto',
+          cache_ttl_seconds: 60 * 60 * 24 * 7, // 7 days
+          params: { temperature: 0.3, max_tokens: 500 }
+        }
+      }
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      logStep("OpenAI API error", { status: response.status, error: errorText });
-      throw new Error(`OpenAI API error: ${errorText}`);
+    if (gatewayErr) {
+      throw new Error(gatewayErr.message);
     }
 
-    const aiResult = await response.json();
-    const analysisText = aiResult.choices[0].message.content;
-    
-    logStep("AI analysis completed", { analysisLength: analysisText.length });
+    const content = gatewayResp?.data?.content || gatewayResp?.results?.[0]?.data?.content;
+    if (!content) throw new Error('AI gateway returned no content');
 
-    // Parse the JSON response from GPT
+    logStep("AI analysis completed", { analysisLength: content.length });
+
+    // Parse the JSON response from AI
     let analysis;
     try {
-      analysis = JSON.parse(analysisText);
+      analysis = JSON.parse(content);
     } catch (parseError) {
       logStep("JSON parse error, using fallback", { error: parseError });
-      // Fallback if JSON parsing fails
       analysis = {
         summary: transcript.length > 150 ? transcript.substring(0, 150) + "..." : transcript,
         tags: ["memory", "note"],
@@ -139,6 +120,39 @@ Respond in JSON format:
     }
 
     logStep("Memory saved successfully", { memoryId: memory.id });
+
+    // Create RAG chunks and store embeddings (best-effort, non-blocking on errors)
+    try {
+      const makeChunks = (text: string, chunkSize = 800) => {
+        const s = (text || '').replace(/\s+/g, ' ').trim();
+        const chunks: string[] = [];
+        for (let i = 0; i < s.length; i += chunkSize) chunks.push(s.slice(i, i + chunkSize));
+        return chunks;
+      };
+
+      const chunks = makeChunks(transcript, 800).slice(0, 64); // cap to avoid overload
+      if (chunks.length > 0) {
+        const { data: embResp, error: embErr } = await supabaseAnon.functions.invoke('ai-gateway', {
+          headers: { Authorization: `Bearer ${token}` },
+          body: { task: { type: 'embed', input: chunks, cache_ttl_seconds: 60 * 60 * 24 * 30 } }
+        });
+        if (embErr) throw new Error(embErr.message);
+        const embeddings: number[][] = embResp?.data?.embeddings || embResp?.results?.[0]?.data?.embeddings || [];
+        if (embeddings.length === chunks.length) {
+          const rows = embeddings.map((emb, i) => ({
+            user_id: user.id,
+            memory_id: memory.id,
+            content: chunks[i],
+            embedding: emb
+          }));
+          const { error: insertChunksErr } = await supabaseClient.from('memory_chunks').insert(rows);
+          if (insertChunksErr) throw insertChunksErr;
+          logStep("Embeddings stored", { count: rows.length });
+        }
+      }
+    } catch (e) {
+      logStep("Embeddings step failed (non-blocking)", { error: String(e) });
+    }
 
     // Update user's memory count
     await supabaseClient

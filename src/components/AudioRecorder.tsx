@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { compressText } from "@/lib/promptPreprocessor";
 
 interface AudioRecorderProps {
   onMemoryCreated?: (memory: any) => void;
@@ -166,8 +167,9 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onMemoryCreated }) => {
     setIsProcessing(true);
 
     try {
+      const compressed = compressText(transcript, 4000);
       const { data, error } = await supabase.functions.invoke('process-memory', {
-        body: { transcript, title }
+        body: { transcript: compressed, title }
       });
 
       if (error) {

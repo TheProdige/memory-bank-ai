@@ -11,3 +11,6 @@ verify_jwt = true
 
 [functions.proactive-engine]
 verify_jwt = false
+
+[functions.ai-gateway]
+verify_jwt = true
