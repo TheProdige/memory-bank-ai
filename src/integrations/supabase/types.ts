@@ -14,6 +14,84 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_cache: {
+        Row: {
+          created_at: string
+          expires_at: string | null
+          id: string
+          key: string
+          model: string | null
+          request_fingerprint: string | null
+          result: Json
+          tokens_estimated: number | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          key: string
+          model?: string | null
+          request_fingerprint?: string | null
+          result: Json
+          tokens_estimated?: number | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          key?: string
+          model?: string | null
+          request_fingerprint?: string | null
+          result?: Json
+          tokens_estimated?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      ai_logs: {
+        Row: {
+          cache_hit: boolean
+          cost_usd: number | null
+          created_at: string
+          id: string
+          latency_ms: number | null
+          model: string | null
+          operation: string
+          prompt_chars: number | null
+          request_tokens: number | null
+          response_tokens: number | null
+          user_id: string
+        }
+        Insert: {
+          cache_hit?: boolean
+          cost_usd?: number | null
+          created_at?: string
+          id?: string
+          latency_ms?: number | null
+          model?: string | null
+          operation: string
+          prompt_chars?: number | null
+          request_tokens?: number | null
+          response_tokens?: number | null
+          user_id: string
+        }
+        Update: {
+          cache_hit?: boolean
+          cost_usd?: number | null
+          created_at?: string
+          id?: string
+          latency_ms?: number | null
+          model?: string | null
+          operation?: string
+          prompt_chars?: number | null
+          request_tokens?: number | null
+          response_tokens?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       memories: {
         Row: {
           audio_url: string | null
@@ -52,6 +130,41 @@ export type Database = {
           user_id?: string | null
         }
         Relationships: []
+      }
+      memory_chunks: {
+        Row: {
+          content: string
+          created_at: string
+          embedding: string
+          id: string
+          memory_id: string | null
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          embedding: string
+          id?: string
+          memory_id?: string | null
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          embedding?: string
+          id?: string
+          memory_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "memory_chunks_memory_id_fkey"
+            columns: ["memory_id"]
+            isOneToOne: false
+            referencedRelation: "memories"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       notes: {
         Row: {
@@ -250,6 +363,26 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      binary_quantize: {
+        Args: { "": string } | { "": unknown }
+        Returns: unknown
+      }
+      halfvec_avg: {
+        Args: { "": number[] }
+        Returns: unknown
+      }
+      halfvec_out: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      halfvec_send: {
+        Args: { "": unknown }
+        Returns: string
+      }
+      halfvec_typmod_in: {
+        Args: { "": unknown[] }
+        Returns: number
+      }
       has_current_user_vault_role: {
         Args: {
           _vault_id: string
@@ -265,6 +398,22 @@ export type Database = {
         }
         Returns: boolean
       }
+      hnsw_bit_support: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      hnsw_halfvec_support: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      hnsw_sparsevec_support: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      hnswhandler: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
       is_current_user_vault_member: {
         Args: { _vault_id: string }
         Returns: boolean
@@ -272,6 +421,75 @@ export type Database = {
       is_vault_member: {
         Args: { _user_id: string; _vault_id: string }
         Returns: boolean
+      }
+      ivfflat_bit_support: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      ivfflat_halfvec_support: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      ivfflathandler: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      l2_norm: {
+        Args: { "": unknown } | { "": unknown }
+        Returns: number
+      }
+      l2_normalize: {
+        Args: { "": string } | { "": unknown } | { "": unknown }
+        Returns: unknown
+      }
+      match_memory_chunks: {
+        Args: {
+          query_embedding: string
+          match_threshold: number
+          match_count: number
+        }
+        Returns: {
+          id: string
+          memory_id: string
+          content: string
+          distance: number
+        }[]
+      }
+      sparsevec_out: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      sparsevec_send: {
+        Args: { "": unknown }
+        Returns: string
+      }
+      sparsevec_typmod_in: {
+        Args: { "": unknown[] }
+        Returns: number
+      }
+      vector_avg: {
+        Args: { "": number[] }
+        Returns: string
+      }
+      vector_dims: {
+        Args: { "": string } | { "": unknown }
+        Returns: number
+      }
+      vector_norm: {
+        Args: { "": string }
+        Returns: number
+      }
+      vector_out: {
+        Args: { "": string }
+        Returns: unknown
+      }
+      vector_send: {
+        Args: { "": string }
+        Returns: string
+      }
+      vector_typmod_in: {
+        Args: { "": unknown[] }
+        Returns: number
       }
     }
     Enums: {
