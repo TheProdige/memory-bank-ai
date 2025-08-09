@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.process-memory]
 verify_jwt = false
+
+[functions.vault-collab-merge]
+verify_jwt = true
+
+[functions.proactive-engine]
+verify_jwt = true
