@@ -53,6 +53,111 @@ export type Database = {
         }
         Relationships: []
       }
+      notes: {
+        Row: {
+          content: string | null
+          created_at: string
+          id: string
+          is_archived: boolean
+          tags: string[] | null
+          title: string
+          updated_at: string
+          user_id: string
+          vault_id: string | null
+        }
+        Insert: {
+          content?: string | null
+          created_at?: string
+          id?: string
+          is_archived?: boolean
+          tags?: string[] | null
+          title: string
+          updated_at?: string
+          user_id: string
+          vault_id?: string | null
+        }
+        Update: {
+          content?: string | null
+          created_at?: string
+          id?: string
+          is_archived?: boolean
+          tags?: string[] | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+          vault_id?: string | null
+        }
+        Relationships: []
+      }
+      proactive_events: {
+        Row: {
+          created_at: string
+          id: string
+          payload: Json | null
+          rule_id: string
+          status: Database["public"]["Enums"]["proactive_event_status"]
+          user_id: string
+          vault_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          payload?: Json | null
+          rule_id: string
+          status?: Database["public"]["Enums"]["proactive_event_status"]
+          user_id: string
+          vault_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          payload?: Json | null
+          rule_id?: string
+          status?: Database["public"]["Enums"]["proactive_event_status"]
+          user_id?: string
+          vault_id?: string | null
+        }
+        Relationships: []
+      }
+      proactive_rules: {
+        Row: {
+          action: Json | null
+          conditions: Json | null
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          updated_at: string
+          user_id: string
+          vault_id: string | null
+        }
+        Insert: {
+          action?: Json | null
+          conditions?: Json | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          updated_at?: string
+          user_id: string
+          vault_id?: string | null
+        }
+        Update: {
+          action?: Json | null
+          conditions?: Json | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          updated_at?: string
+          user_id?: string
+          vault_id?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -86,15 +191,92 @@ export type Database = {
         }
         Relationships: []
       }
+      vault_members: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["vault_member_role"]
+          user_id: string
+          vault_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["vault_member_role"]
+          user_id: string
+          vault_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["vault_member_role"]
+          user_id?: string
+          vault_id?: string
+        }
+        Relationships: []
+      }
+      vaults: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          is_archived: boolean
+          name: string
+          owner_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_archived?: boolean
+          name: string
+          owner_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_archived?: boolean
+          name?: string
+          owner_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_current_user_vault_role: {
+        Args: {
+          _vault_id: string
+          _role: Database["public"]["Enums"]["vault_member_role"]
+        }
+        Returns: boolean
+      }
+      has_vault_role: {
+        Args: {
+          _user_id: string
+          _vault_id: string
+          _role: Database["public"]["Enums"]["vault_member_role"]
+        }
+        Returns: boolean
+      }
+      is_current_user_vault_member: {
+        Args: { _vault_id: string }
+        Returns: boolean
+      }
+      is_vault_member: {
+        Args: { _user_id: string; _vault_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      proactive_event_status: "triggered" | "executed" | "failed"
+      vault_member_role: "owner" | "editor" | "viewer"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -221,6 +403,9 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      proactive_event_status: ["triggered", "executed", "failed"],
+      vault_member_role: ["owner", "editor", "viewer"],
+    },
   },
 } as const
