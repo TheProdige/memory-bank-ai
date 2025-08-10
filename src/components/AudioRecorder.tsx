@@ -29,6 +29,8 @@ import {
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { compressText } from "@/lib/promptPreprocessor";
+import { Switch } from "@/components/ui/switch";
+import { transcribeAudioLocal } from "@/hooks/useLocalTranscription";
 
 interface AudioRecorderProps {
   onMemoryCreated?: (memory: any) => void;
@@ -58,6 +60,9 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onMemoryCreated }) => {
   const [transcript, setTranscript] = useState("");
   const [title, setTitle] = useState("");
   const [isAutoTitle, setIsAutoTitle] = useState(true);
+
+  // Transcription options
+  const [offlineMode, setOfflineMode] = useState(true);
   
   // Local storage fallback
   const [localBackup, setLocalBackup] = useState<any>(null);
@@ -124,39 +129,54 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onMemoryCreated }) => {
     if (!audioURL) return;
 
     setIsProcessing(true);
+    setProgress(0);
+    setProgressStep(offlineMode ? "Transcription locale" : "Préparation de l'audio");
     
     try {
-      // Convert audio blob to base64
       const response = await fetch(audioURL);
       const blob = await response.blob();
-      
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64Audio = (reader.result as string).split(',')[1];
-        
-        // Call transcription edge function
+
+      if (offlineMode) {
+        toast.info("Transcription locale (aucun envoi externe)");
+        const result = await transcribeAudioLocal(blob, {
+          languageHint: "auto",
+          chunkLengthSec: 30,
+          strideLengthSec: 5,
+          onProgress: (p, step) => {
+            setProgress(p);
+            if (step) setProgressStep(step);
+          },
+        });
+        setTranscript(result.text);
+        toast.success("Transcription locale terminée");
+      } else {
+        // Convert to base64 and call the existing edge function
+        const reader = new FileReader();
+        const base64Audio: string = await new Promise((resolve, reject) => {
+          reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+          reader.onerror = () => reject(new Error('Lecture audio échouée'));
+          reader.readAsDataURL(blob);
+        });
+
         const { data, error } = await supabase.functions.invoke('transcribe-audio', {
           body: { audio: base64Audio }
         });
 
-        if (error) {
-          throw new Error(error.message);
-        }
-
+        if (error) throw new Error(error.message);
         if (data.success) {
           setTranscript(data.transcript);
           toast.success("Transcription terminée");
         } else {
           throw new Error(data.error);
         }
-      };
-      
-      reader.readAsDataURL(blob);
+      }
     } catch (error) {
       console.error('Transcription error:', error);
       toast.error("Erreur lors de la transcription");
     } finally {
       setIsProcessing(false);
+      setProgress(0);
+      setProgressStep("");
     }
   };
 
@@ -247,6 +267,15 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onMemoryCreated }) => {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Options */}
+          <div className="flex items-center justify-between rounded-md border p-3">
+            <div>
+              <p className="text-sm font-medium">Mode hors-ligne</p>
+              <p className="text-xs text-muted-foreground">Transcription locale (aucune requête externe)</p>
+            </div>
+            <Switch checked={offlineMode} onCheckedChange={setOfflineMode} aria-label="Basculer le mode hors-ligne" />
+          </div>
+
           {/* Recording Controls */}
           <div className="text-center space-y-4">
             {!audioURL ? (
