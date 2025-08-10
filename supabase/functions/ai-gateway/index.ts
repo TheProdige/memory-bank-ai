@@ -64,18 +64,6 @@ serve(async (req) => {
       throw new Error('No task(s) provided');
     }
 
-    // Helper: choose model based on complexity
-    const chooseModel = (payload: any) => {
-      const mode = payload?.complexity ?? 'auto';
-      if (mode === 'force_simple') return 'gpt-4o-mini';
-      if (mode === 'force_complex') return 'gpt-4.1-2025-04-14';
-      const userText = typeof payload?.input === 'string' ? payload.input : JSON.stringify(payload?.input || {});
-      const chars = userText.length;
-      const hasKeywords = /strategy|legal|financial|architecture|rantime|multi-step|in-depth|nuanced/i.test(userText);
-      if (chars > 6000 || hasKeywords) return 'gpt-4.1-2025-04-14';
-      return 'gpt-4o-mini';
-    };
-
     // Process embedding inputs in batch for efficiency
     const runEmbeddings = async (input: string[] | string) => {
       const inputs = Array.isArray(input) ? input : [input];
@@ -154,6 +142,7 @@ serve(async (req) => {
         const reqTokensEst = texts.reduce((n, s) => n + estimateTokens(s), 0);
         const estCost = (reqTokensEst / 1000) * 0.00002; // rough price for embeddings
         const today = new Date().toISOString().slice(0, 10);
+        const dailyDefault = Number(Deno.env.get('LLM_DAILY_BUDGET_USD') || '0.5');
         const { data: budgetRows } = await supabase
           .from('llm_budgets')
           .select('spent_usd, daily_limit_usd')
@@ -161,7 +150,7 @@ serve(async (req) => {
           .eq('date', today)
           .limit(1);
         const spent = budgetRows?.[0]?.spent_usd ?? 0;
-        const limit = budgetRows?.[0]?.daily_limit_usd ?? 0.5;
+        const limit = budgetRows?.[0]?.daily_limit_usd ?? dailyDefault;
         if (spent + estCost > limit) {
           // Skip embeddings under budget pressure
           results.push({ ok: true, type, model: 'text-embedding-3-small', data: { embeddings: [] }, cache_hit: false, degraded: 'budget_exceeded' });
@@ -205,16 +194,23 @@ serve(async (req) => {
         const system = payload?.system || 'You are a concise assistant. Always return compact answers in strict JSON when asked.';
         const userInputRaw = typeof payload?.input === 'string' ? payload.input : JSON.stringify(payload?.input || {});
         const userInput = payload?.preprocess === false ? userInputRaw : compressText(userInputRaw, payload?.max_input_chars ?? 4000);
-        const model = payload?.model || chooseModel(payload);
-        const params = payload?.params || { temperature: 0.3, max_tokens: 256 };
+        const routeOnLowConfidence = payload?.route_large_on_low_conf !== false; // default true
+        // Default small model, escalate only if needed
+        let model = payload?.model || 'gpt-4o-mini';
+        const params = {
+          temperature: payload?.params?.temperature ?? 0.2,
+          max_tokens: payload?.params?.max_tokens ?? 280,
+          stop: payload?.params?.stop ?? ['__END__'],
+        } as Record<string, any>;
 
         // Budget pre-check with conservative estimate
         const reqTokensEst = estimateTokens(system + userInput);
-        const respMax = params.max_tokens ?? 256;
+        const respMax = params.max_tokens;
         const pricing: Record<string, { in: number; out: number }> = {
           'gpt-4o-mini': { in: 0.00015, out: 0.0006 },
           'gpt-4.1-2025-04-14': { in: 0.005, out: 0.015 },
         };
+        const dailyDefault = Number(Deno.env.get('LLM_DAILY_BUDGET_USD') || '0.5');
         const rate = pricing[model] ?? pricing['gpt-4o-mini'];
         const estCost = (reqTokensEst / 1000) * rate.in + (respMax / 1000) * rate.out;
         const today = new Date().toISOString().slice(0, 10);
@@ -225,56 +221,85 @@ serve(async (req) => {
           .eq('date', today)
           .limit(1);
         const spent = budgetRows?.[0]?.spent_usd ?? 0;
-        const limit = budgetRows?.[0]?.daily_limit_usd ?? 0.5;
+        const limit = budgetRows?.[0]?.daily_limit_usd ?? dailyDefault;
         if (spent + estCost > limit) {
           results.push({ ok: false, type, error: 'budget_exceeded' });
           continue;
         }
 
-        const reqBody = {
-          model,
+        const buildBody = (mdl: string) => ({
+          model: mdl,
           messages: [
             { role: 'system', content: system },
             { role: 'user', content: userInput }
           ],
           response_format: { type: 'json_object' },
           ...params,
-        };
+        });
 
-        const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        // 1) Call small model
+        let usedModel = model;
+        let resp = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${openaiKey}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(reqBody),
+          body: JSON.stringify(buildBody(usedModel)),
         });
         if (!resp.ok) {
           const text = await resp.text();
           throw new Error(`OpenAI Chat error: ${text}`);
         }
-        const json = await resp.json();
-        const content = json.choices?.[0]?.message?.content ?? '';
+        let json = await resp.json();
+        let content: string = json.choices?.[0]?.message?.content ?? '';
+        let parsed: any = undefined;
+        try { parsed = JSON.parse(content); } catch {}
+        const confidence = typeof parsed?.confidence === 'number' ? parsed.confidence : (content.length > 120 ? 0.85 : 0.6);
+
+        // 2) Escalate only if confidence low
+        if (routeOnLowConfidence && confidence < 0.75) {
+          usedModel = 'gpt-4.1-2025-04-14';
+          const rate2 = pricing[usedModel];
+          const extraCost = (respMax / 1000) * rate2.out; // conservative
+          if (spent + estCost + extraCost <= limit) {
+            resp = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${openaiKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(buildBody(usedModel)),
+            });
+            if (!resp.ok) {
+              const text = await resp.text();
+              throw new Error(`OpenAI Chat error: ${text}`);
+            }
+            json = await resp.json();
+            content = json.choices?.[0]?.message?.content ?? content;
+          }
+        }
 
         // Cache result
         await supabase.from('ai_cache').insert({
           key,
           user_id: userId,
           result: { content },
-          model,
+          model: usedModel,
           tokens_estimated: estimateTokens(content),
           expires_at: new Date(Date.now() + ttl * 1000).toISOString(),
           request_fingerprint: key,
         });
 
-        // Log with actual token-based cost
+        // Log with token-based cost
         const reqTok = reqTokensEst;
         const respTok = estimateTokens(content);
-        const costUsd = (reqTok / 1000) * rate.in + (respTok / 1000) * rate.out;
+        const rateUsed = pricing[usedModel] ?? rate;
+        const costUsd = (reqTok / 1000) * rateUsed.in + (respTok / 1000) * rateUsed.out;
         await supabase.from('ai_logs').insert({
           user_id: userId,
           operation: 'chat',
-          model,
+          model: usedModel,
           request_tokens: reqTok,
           response_tokens: respTok,
           cost_usd: costUsd,
@@ -284,7 +309,7 @@ serve(async (req) => {
           request_fingerprint: key,
         });
 
-        results.push({ ok: true, type, model, data: { content }, cache_hit: false });
+        results.push({ ok: true, type, model: usedModel, data: { content }, cache_hit: false });
         continue;
       }
 

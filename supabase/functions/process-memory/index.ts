@@ -144,14 +144,17 @@ serve(async (req) => {
 
     // Create RAG chunks and store embeddings (best-effort, non-blocking on errors)
     try {
-      const makeChunks = (text: string, chunkSize = 800) => {
+      // Overlapping chunker: size=720, overlap=64, cap to top_k=4 for frugal RAG
+      const makeChunks = (text: string, size = 720, overlap = 64) => {
         const s = (text || '').replace(/\s+/g, ' ').trim();
-        const chunks: string[] = [];
-        for (let i = 0; i < s.length; i += chunkSize) chunks.push(s.slice(i, i + chunkSize));
-        return chunks;
+        const out: string[] = [];
+        for (let i = 0; i < s.length && out.length < 32; i += (size - overlap)) {
+          out.push(s.slice(i, i + size));
+        }
+        return out;
       };
 
-      const baseChunks = makeChunks(transcript, 800).slice(0, 5); // frugal: cap to 5
+      const baseChunks = makeChunks(transcript, 720, 64).slice(0, 4); // top_k = 4
       if (baseChunks.length > 0) {
         // Dedup by content_hash
         const enc = new TextEncoder();
@@ -170,24 +173,16 @@ serve(async (req) => {
           .filter(x => !existing.has(x.h));
 
         if (toEmbed.length > 0) {
-          const { data: embResp, error: embErr } = await supabaseAnon.functions.invoke('ai-gateway', {
-            headers: { Authorization: `Bearer ${token}` },
-            body: { task: { type: 'embed', input: toEmbed.map(x => x.c), cache_ttl_seconds: 60 * 60 * 24 * 30 } }
+          // Enqueue a non-urgent embedding job to run via cron/batch
+          const payload = { input: toEmbed.map(x => x.c), memory_id: memory.id };
+          const { error: jobErr } = await supabaseClient.from('ai_jobs').insert({
+            user_id: user.id,
+            type: 'embed',
+            payload,
+            status: 'queued',
           });
-          if (embErr) throw new Error(embErr.message);
-          const embeddings: number[][] = embResp?.data?.embeddings || embResp?.results?.[0]?.data?.embeddings || [];
-          if (embeddings.length === toEmbed.length) {
-            const rows = toEmbed.map((x, idx) => ({
-              user_id: user.id,
-              memory_id: memory.id,
-              content: x.c,
-              embedding: embeddings[idx],
-              content_hash: x.h,
-            }));
-            const { error: insertChunksErr } = await supabaseClient.from('memory_chunks').insert(rows);
-            if (insertChunksErr) throw insertChunksErr;
-            logStep("Embeddings stored", { count: rows.length });
-          }
+          if (jobErr) throw jobErr;
+          logStep("Embeddings queued for batch processing", { count: toEmbed.length });
         } else {
           logStep("Embeddings skipped - all chunks already embedded");
         }

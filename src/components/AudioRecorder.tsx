@@ -88,7 +88,16 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onMemoryCreated }) => {
         audio: { channelCount: 1, sampleRate: 16000, noiseSuppression: true, echoCancellation: true }
       });
       streamRef.current = stream;
-      
+
+      // WebAudio setup for simple VAD + volume meter
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      source.connect(analyser);
+      volumeAnalyserRef.current = analyser;
+
       const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 32000 });
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
@@ -103,14 +112,52 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onMemoryCreated }) => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
         const url = URL.createObjectURL(audioBlob);
         setAudioURL(url);
-        
         // Stop all tracks
         stream.getTracks().forEach(track => track.stop());
+        // Cleanup timers and audio
+        if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current as any); recordingTimerRef.current = null; }
+        audioCtx.close();
       };
 
+      // Start recording
       mediaRecorder.start();
       setIsRecording(true);
+      setRecordingTime(0);
       toast.success("Enregistrement démarré");
+
+      // Recording timer and VAD loop
+      let silenceMs = 0;
+      const checkInterval = 200; // ms
+      const maxDurationMs = 45000; // 45s
+      const startedAt = performance.now();
+
+      recordingTimerRef.current = setInterval(() => {
+        // Update elapsed time
+        const elapsed = Math.floor((performance.now() - startedAt) / 1000);
+        setRecordingTime(elapsed);
+        // VAD energy check
+        if (volumeAnalyserRef.current) {
+          volumeAnalyserRef.current.getByteTimeDomainData(dataArray);
+          // Compute RMS
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            const v = (dataArray[i] - 128) / 128; // center to 0
+            sum += v * v;
+          }
+          const rms = Math.sqrt(sum / dataArray.length);
+          setRecordingVolume(rms);
+          const isSilent = rms < 0.015; // threshold ~ -36dB
+          silenceMs = isSilent ? silenceMs + checkInterval : 0;
+          if (silenceMs >= 1500 && elapsed > 1) {
+            // Auto-stop on 1.5s silence after at least 1s of speech
+            stopRecording();
+          }
+        }
+        // Hard stop at 45s
+        if (performance.now() - startedAt >= maxDurationMs) {
+          stopRecording();
+        }
+      }, checkInterval) as any;
     } catch (error) {
       console.error('Error starting recording:', error);
       toast.error("Impossible d'accéder au microphone");
