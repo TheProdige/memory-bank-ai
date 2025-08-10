@@ -79,10 +79,12 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onMemoryCreated }) => {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: { channelCount: 1, sampleRate: 16000, noiseSuppression: true, echoCancellation: true }
+      });
       streamRef.current = stream;
       
-      const mediaRecorder = new MediaRecorder(stream);
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 32000 });
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -93,7 +95,7 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onMemoryCreated }) => {
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
         const url = URL.createObjectURL(audioBlob);
         setAudioURL(url);
         
@@ -168,6 +170,28 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onMemoryCreated }) => {
 
     try {
       const compressed = compressText(transcript, 4000);
+
+      // Local cache: avoid duplicate processing
+      const encoder = new TextEncoder();
+      const data = encoder.encode(`${compressed}|${title || ''}`);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      const cacheKey = `pm:${hashHex}`;
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          const ttlMs = 7 * 24 * 60 * 60 * 1000; // 7 days
+          if (Date.now() - (parsed.savedAt || 0) < ttlMs && parsed.memory) {
+            toast.success("Souvenir récupéré du cache local");
+            onMemoryCreated?.(parsed.memory);
+            resetRecorder();
+            return;
+          }
+        } catch {}
+      }
+
       const { data, error } = await supabase.functions.invoke('process-memory', {
         body: { transcript: compressed, title }
       });
@@ -179,6 +203,7 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onMemoryCreated }) => {
       if (data.success) {
         toast.success("Souvenir créé avec succès!");
         onMemoryCreated?.(data.memory);
+        try { localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), memory: data.memory })); } catch {}
         resetRecorder();
       } else {
         throw new Error(data.error);

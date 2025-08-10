@@ -70,7 +70,7 @@ serve(async (req) => {
           input: analysisPrompt,
           complexity: 'auto',
           cache_ttl_seconds: 60 * 60 * 24 * 7, // 7 days
-          params: { temperature: 0.3, max_tokens: 500 }
+          params: { temperature: 0.3, max_tokens: 256 }
         }
       }
     });
@@ -130,7 +130,7 @@ serve(async (req) => {
         return chunks;
       };
 
-      const chunks = makeChunks(transcript, 800).slice(0, 64); // cap to avoid overload
+      const chunks = makeChunks(transcript, 800).slice(0, 12); // cap to avoid overload
       if (chunks.length > 0) {
         const { data: embResp, error: embErr } = await supabaseAnon.functions.invoke('ai-gateway', {
           headers: { Authorization: `Bearer ${token}` },

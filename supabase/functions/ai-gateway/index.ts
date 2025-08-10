@@ -51,6 +51,13 @@ serve(async (req) => {
       global: { headers: { Authorization: `Bearer ${jwt}` } },
     });
 
+    // Resolve current user for RLS inserts
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    if (userErr || !userData?.user) {
+      throw new Error('Failed to resolve user from JWT');
+    }
+    const userId = userData.user.id;
+
     const { task, tasks, cache_ttl_seconds } = await req.json();
     const items = tasks ?? (task ? [task] : []);
     if (!Array.isArray(items) || items.length === 0) {
@@ -123,6 +130,7 @@ serve(async (req) => {
         results.push({ ok: true, type, model: cached.model, data: cached.result, cache_hit: true });
         // Log
         await supabase.from('ai_logs').insert({
+          user_id: userId,
           operation: type,
           model: cached.model,
           request_tokens: 0,
@@ -131,6 +139,7 @@ serve(async (req) => {
           latency_ms: Date.now() - t0,
           prompt_chars: 0,
           cache_hit: true,
+          request_fingerprint: key,
         });
         continue;
       }
@@ -146,14 +155,17 @@ serve(async (req) => {
         // Cache result
         await supabase.from('ai_cache').insert({
           key,
+          user_id: userId,
           result: { embeddings },
           model,
           tokens_estimated: responseTokens,
           expires_at: new Date(Date.now() + ttl * 1000).toISOString(),
+          request_fingerprint: key,
         });
 
         // Log
         await supabase.from('ai_logs').insert({
+          user_id: userId,
           operation: 'embed',
           model,
           request_tokens: texts.reduce((n, s) => n + estimateTokens(s), 0),
@@ -162,6 +174,7 @@ serve(async (req) => {
           latency_ms: Date.now() - t0,
           prompt_chars: texts.join('\n').length,
           cache_hit: false,
+          request_fingerprint: key,
         });
 
         results.push({ ok: true, type, model, data: { embeddings }, cache_hit: false });
@@ -173,7 +186,7 @@ serve(async (req) => {
         const userInputRaw = typeof payload?.input === 'string' ? payload.input : JSON.stringify(payload?.input || {});
         const userInput = payload?.preprocess === false ? userInputRaw : compressText(userInputRaw, payload?.max_input_chars ?? 4000);
         const model = payload?.model || chooseModel(payload);
-        const params = payload?.params || { temperature: 0.3, max_tokens: 512 };
+        const params = payload?.params || { temperature: 0.3, max_tokens: 256 };
 
         const reqBody = {
           model,
@@ -202,14 +215,17 @@ serve(async (req) => {
         // Cache result
         await supabase.from('ai_cache').insert({
           key,
+          user_id: userId,
           result: { content },
           model,
           tokens_estimated: estimateTokens(content),
           expires_at: new Date(Date.now() + ttl * 1000).toISOString(),
+          request_fingerprint: key,
         });
 
         // Log
         await supabase.from('ai_logs').insert({
+          user_id: userId,
           operation: 'chat',
           model,
           request_tokens: estimateTokens(system + userInput),
@@ -218,6 +234,7 @@ serve(async (req) => {
           latency_ms: Date.now() - t0,
           prompt_chars: (system + userInput).length,
           cache_hit: false,
+          request_fingerprint: key,
         });
 
         results.push({ ok: true, type, model, data: { content }, cache_hit: false });
