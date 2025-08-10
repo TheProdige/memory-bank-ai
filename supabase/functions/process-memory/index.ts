@@ -48,54 +48,75 @@ serve(async (req) => {
       throw new Error('No transcript provided');
     }
 
-    logStep("Processing transcript", { transcriptLength: transcript.length });
-
-    // Build analysis prompt
-    const analysisPrompt = `Analyze this audio transcript and provide:\n\n1. A concise summary (max 150 words)\n2. Key topics/themes as tags (max 5 tags, single words or short phrases)\n3. Emotional tone (one of: positive, neutral, negative, excited, contemplative, stressed, happy, sad, angry, curious, motivated)\n4. A suggested title if none provided (max 50 characters)\n\nTranscript: "${transcript}"\n\nRespond in JSON format:\n{\n  "summary": "...",\n  "tags": ["tag1", "tag2", "tag3"],\n  "emotion": "emotional_tone",\n  "suggested_title": "..."\n}`;
-
-    // Use centralized AI gateway (caching, routing, logging)
     const supabaseAnon = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? ''
     );
 
-    const system = 'You are an AI assistant that analyzes audio transcripts to extract meaningful insights. Always respond with valid JSON format.';
+    logStep("Processing transcript", { transcriptLength: transcript.length });
 
-    const { data: gatewayResp, error: gatewayErr } = await supabaseAnon.functions.invoke('ai-gateway', {
-      headers: { Authorization: `Bearer ${token}` },
-      body: {
-        task: {
-          type: 'chat',
-          system,
-          input: analysisPrompt,
-          complexity: 'auto',
-          cache_ttl_seconds: 60 * 60 * 24 * 7, // 7 days
-          params: { temperature: 0.3, max_tokens: 256 }
+    // Build analysis prompt
+    const analysisPrompt = `Analyze this audio transcript and provide:\n\n1. A concise summary (max 150 words)\n2. Key topics/themes as tags (max 5 tags, single words or short phrases)\n3. Emotional tone (one of: positive, neutral, negative, excited, contemplative, stressed, happy, sad, angry, curious, motivated)\n4. A suggested title if none provided (max 50 characters)\n\nTranscript: "${transcript}"\n\nRespond in JSON format:\n{\n  "summary": "...",\n  "tags": ["tag1", "tag2", "tag3"],\n  "emotion": "emotional_tone",\n  "suggested_title": "..."\n}`;
+
+    // Cheap local analysis to avoid LLM for simple cases
+    const localAnalyze = (text: string, t?: string) => {
+      const clean = (text || '').replace(/\s+/g, ' ').trim();
+      const sentences = clean.split(/(?<=[.!?])\s+/).filter(Boolean);
+      const summary = sentences.slice(0, 2).join(' ').slice(0, 400);
+      const words = clean.toLowerCase().replace(/[^a-zàâäéèêëîïôöùûüç0-9\s-]/gi, ' ').split(/\s+/).filter(w => w.length > 3);
+      const freq: Record<string, number> = {};
+      for (const w of words) freq[w] = (freq[w] || 0) + 1;
+      const stop = new Set(['avec','pour','dans','alors','parce','mais','donc','cette','cela','comme','plus','moins','tres','tout','nous','vous','elles','cela','cest','chez','entre','quand','aussi','avoir','être','faire','comme','from','with','this','that','they','them','have','been','were','what','your','about','just']);
+      const tags = Object.entries(freq)
+        .filter(([w]) => !stop.has(w))
+        .sort((a,b) => b[1]-a[1])
+        .slice(0,5)
+        .map(([w]) => w);
+      const emoMap: Record<string,string> = { 'heureux':'happy','content':'happy','joyeux':'happy','triste':'sad','stress':'stressed','énervé':'angry','colère':'angry','fatigu':'contemplative','motivé':'motivated','motivation':'motivated','curieux':'curious','inquiet':'stressed','anxieux':'stressed','bien':'positive','mal':'negative' };
+      let emotion = 'neutral';
+      for (const [k,v] of Object.entries(emoMap)) { if (clean.toLowerCase().includes(k)) { emotion = v; break; } }
+      const suggested_title = t || (sentences[0]?.slice(0, 50) || 'Nouveau souvenir');
+      return { summary: summary || clean.slice(0,150), tags, emotion, suggested_title };
+    };
+
+    let analysis: any | null = null;
+    const shouldUseLocal = transcript.length <= 400 || (transcript.split(/[.!?]/).length <= 2);
+
+    if (!shouldUseLocal) {
+      // Use centralized AI gateway (caching, routing, logging)
+      const supabaseAnon = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+      );
+
+      const system = 'You are an AI assistant that analyzes audio transcripts to extract meaningful insights. Always respond with valid JSON format.';
+
+      const { data: gatewayResp, error: gatewayErr } = await supabaseAnon.functions.invoke('ai-gateway', {
+        headers: { Authorization: `Bearer ${token}` },
+        body: {
+          task: {
+            type: 'chat',
+            system,
+            input: analysisPrompt,
+            complexity: 'force_simple',
+            cache_ttl_seconds: 60 * 60 * 24 * 7, // 7 days
+            params: { temperature: 0.2, max_tokens: 220 }
+          }
+        }
+      });
+
+      if (!gatewayErr) {
+        const content = gatewayResp?.data?.content || gatewayResp?.results?.[0]?.data?.content;
+        const budgetExceeded = gatewayResp?.error === 'budget_exceeded' || gatewayResp?.results?.[0]?.error === 'budget_exceeded';
+        if (content && !budgetExceeded) {
+          try { analysis = JSON.parse(content); } catch {}
         }
       }
-    });
-
-    if (gatewayErr) {
-      throw new Error(gatewayErr.message);
     }
 
-    const content = gatewayResp?.data?.content || gatewayResp?.results?.[0]?.data?.content;
-    if (!content) throw new Error('AI gateway returned no content');
-
-    logStep("AI analysis completed", { analysisLength: content.length });
-
-    // Parse the JSON response from AI
-    let analysis;
-    try {
-      analysis = JSON.parse(content);
-    } catch (parseError) {
-      logStep("JSON parse error, using fallback", { error: parseError });
-      analysis = {
-        summary: transcript.length > 150 ? transcript.substring(0, 150) + "..." : transcript,
-        tags: ["memory", "note"],
-        emotion: "neutral",
-        suggested_title: title || "Nouveau souvenir"
-      };
+    if (!analysis) {
+      // Fallback/local path
+      analysis = localAnalyze(transcript, title);
     }
 
     const finalTitle = title || analysis.suggested_title || "Nouveau souvenir";
@@ -130,24 +151,45 @@ serve(async (req) => {
         return chunks;
       };
 
-      const chunks = makeChunks(transcript, 800).slice(0, 12); // cap to avoid overload
-      if (chunks.length > 0) {
-        const { data: embResp, error: embErr } = await supabaseAnon.functions.invoke('ai-gateway', {
-          headers: { Authorization: `Bearer ${token}` },
-          body: { task: { type: 'embed', input: chunks, cache_ttl_seconds: 60 * 60 * 24 * 30 } }
-        });
-        if (embErr) throw new Error(embErr.message);
-        const embeddings: number[][] = embResp?.data?.embeddings || embResp?.results?.[0]?.data?.embeddings || [];
-        if (embeddings.length === chunks.length) {
-          const rows = embeddings.map((emb, i) => ({
-            user_id: user.id,
-            memory_id: memory.id,
-            content: chunks[i],
-            embedding: emb
-          }));
-          const { error: insertChunksErr } = await supabaseClient.from('memory_chunks').insert(rows);
-          if (insertChunksErr) throw insertChunksErr;
-          logStep("Embeddings stored", { count: rows.length });
+      const baseChunks = makeChunks(transcript, 800).slice(0, 5); // frugal: cap to 5
+      if (baseChunks.length > 0) {
+        // Dedup by content_hash
+        const enc = new TextEncoder();
+        const hashes = await Promise.all(baseChunks.map(async (c) => {
+          const buf = await crypto.subtle.digest('SHA-256', enc.encode(c));
+          return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+        }));
+        const { data: existingRows } = await supabaseClient
+          .from('memory_chunks')
+          .select('content_hash')
+          .eq('user_id', user.id)
+          .in('content_hash', hashes);
+        const existing = new Set((existingRows || []).map(r => r.content_hash));
+        const toEmbed = baseChunks
+          .map((c, i) => ({ c, i, h: hashes[i] }))
+          .filter(x => !existing.has(x.h));
+
+        if (toEmbed.length > 0) {
+          const { data: embResp, error: embErr } = await supabaseAnon.functions.invoke('ai-gateway', {
+            headers: { Authorization: `Bearer ${token}` },
+            body: { task: { type: 'embed', input: toEmbed.map(x => x.c), cache_ttl_seconds: 60 * 60 * 24 * 30 } }
+          });
+          if (embErr) throw new Error(embErr.message);
+          const embeddings: number[][] = embResp?.data?.embeddings || embResp?.results?.[0]?.data?.embeddings || [];
+          if (embeddings.length === toEmbed.length) {
+            const rows = toEmbed.map((x, idx) => ({
+              user_id: user.id,
+              memory_id: memory.id,
+              content: x.c,
+              embedding: embeddings[idx],
+              content_hash: x.h,
+            }));
+            const { error: insertChunksErr } = await supabaseClient.from('memory_chunks').insert(rows);
+            if (insertChunksErr) throw insertChunksErr;
+            logStep("Embeddings stored", { count: rows.length });
+          }
+        } else {
+          logStep("Embeddings skipped - all chunks already embedded");
         }
       }
     } catch (e) {

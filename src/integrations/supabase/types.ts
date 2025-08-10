@@ -60,6 +60,7 @@ export type Database = {
           model: string | null
           operation: string
           prompt_chars: number | null
+          request_fingerprint: string | null
           request_tokens: number | null
           response_tokens: number | null
           user_id: string
@@ -73,6 +74,7 @@ export type Database = {
           model?: string | null
           operation: string
           prompt_chars?: number | null
+          request_fingerprint?: string | null
           request_tokens?: number | null
           response_tokens?: number | null
           user_id: string
@@ -86,8 +88,45 @@ export type Database = {
           model?: string | null
           operation?: string
           prompt_chars?: number | null
+          request_fingerprint?: string | null
           request_tokens?: number | null
           response_tokens?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      llm_budgets: {
+        Row: {
+          created_at: string
+          daily_limit_usd: number
+          date: string
+          id: string
+          spent_tokens_in: number
+          spent_tokens_out: number
+          spent_usd: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          daily_limit_usd?: number
+          date?: string
+          id?: string
+          spent_tokens_in?: number
+          spent_tokens_out?: number
+          spent_usd?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          daily_limit_usd?: number
+          date?: string
+          id?: string
+          spent_tokens_in?: number
+          spent_tokens_out?: number
+          spent_usd?: number
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -134,6 +173,7 @@ export type Database = {
       memory_chunks: {
         Row: {
           content: string
+          content_hash: string | null
           created_at: string
           embedding: string
           id: string
@@ -142,6 +182,7 @@ export type Database = {
         }
         Insert: {
           content: string
+          content_hash?: string | null
           created_at?: string
           embedding: string
           id?: string
@@ -150,6 +191,7 @@ export type Database = {
         }
         Update: {
           content?: string
+          content_hash?: string | null
           created_at?: string
           embedding?: string
           id?: string

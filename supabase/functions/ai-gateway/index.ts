@@ -116,6 +116,7 @@ serve(async (req) => {
         const { data: cacheRows, error: cacheErr } = await supabase
           .from('ai_cache')
           .select('result, model, tokens_estimated, expires_at')
+          .eq('user_id', userId)
           .eq('key', key)
           .gt('expires_at', nowIso)
           .limit(1);
@@ -148,6 +149,25 @@ serve(async (req) => {
         const input = payload?.input;
         if (!input) throw new Error('Missing input for embed');
         const texts = Array.isArray(input) ? input.map((s: string) => compressText(s, 8000)) : [compressText(input, 8000)];
+
+        // Budget pre-check (very cheap estimate)
+        const reqTokensEst = texts.reduce((n, s) => n + estimateTokens(s), 0);
+        const estCost = (reqTokensEst / 1000) * 0.00002; // rough price for embeddings
+        const today = new Date().toISOString().slice(0, 10);
+        const { data: budgetRows } = await supabase
+          .from('llm_budgets')
+          .select('spent_usd, daily_limit_usd')
+          .eq('user_id', userId)
+          .eq('date', today)
+          .limit(1);
+        const spent = budgetRows?.[0]?.spent_usd ?? 0;
+        const limit = budgetRows?.[0]?.daily_limit_usd ?? 0.5;
+        if (spent + estCost > limit) {
+          // Skip embeddings under budget pressure
+          results.push({ ok: true, type, model: 'text-embedding-3-small', data: { embeddings: [] }, cache_hit: false, degraded: 'budget_exceeded' });
+          continue;
+        }
+
         const embeddings = await runEmbeddings(texts);
         const responseTokens = embeddings.length * 1536; // rough
         const model = 'text-embedding-3-small';
@@ -168,9 +188,9 @@ serve(async (req) => {
           user_id: userId,
           operation: 'embed',
           model,
-          request_tokens: texts.reduce((n, s) => n + estimateTokens(s), 0),
+          request_tokens: reqTokensEst,
           response_tokens: responseTokens,
-          cost_usd: null,
+          cost_usd: estCost,
           latency_ms: Date.now() - t0,
           prompt_chars: texts.join('\n').length,
           cache_hit: false,
@@ -182,11 +202,34 @@ serve(async (req) => {
       }
 
       if (type === 'chat') {
-        const system = payload?.system || 'You are a concise assistant. Always return compact answers.';
+        const system = payload?.system || 'You are a concise assistant. Always return compact answers in strict JSON when asked.';
         const userInputRaw = typeof payload?.input === 'string' ? payload.input : JSON.stringify(payload?.input || {});
         const userInput = payload?.preprocess === false ? userInputRaw : compressText(userInputRaw, payload?.max_input_chars ?? 4000);
         const model = payload?.model || chooseModel(payload);
         const params = payload?.params || { temperature: 0.3, max_tokens: 256 };
+
+        // Budget pre-check with conservative estimate
+        const reqTokensEst = estimateTokens(system + userInput);
+        const respMax = params.max_tokens ?? 256;
+        const pricing: Record<string, { in: number; out: number }> = {
+          'gpt-4o-mini': { in: 0.00015, out: 0.0006 },
+          'gpt-4.1-2025-04-14': { in: 0.005, out: 0.015 },
+        };
+        const rate = pricing[model] ?? pricing['gpt-4o-mini'];
+        const estCost = (reqTokensEst / 1000) * rate.in + (respMax / 1000) * rate.out;
+        const today = new Date().toISOString().slice(0, 10);
+        const { data: budgetRows } = await supabase
+          .from('llm_budgets')
+          .select('spent_usd, daily_limit_usd')
+          .eq('user_id', userId)
+          .eq('date', today)
+          .limit(1);
+        const spent = budgetRows?.[0]?.spent_usd ?? 0;
+        const limit = budgetRows?.[0]?.daily_limit_usd ?? 0.5;
+        if (spent + estCost > limit) {
+          results.push({ ok: false, type, error: 'budget_exceeded' });
+          continue;
+        }
 
         const reqBody = {
           model,
@@ -194,7 +237,8 @@ serve(async (req) => {
             { role: 'system', content: system },
             { role: 'user', content: userInput }
           ],
-          ...params
+          response_format: { type: 'json_object' },
+          ...params,
         };
 
         const resp = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -223,14 +267,17 @@ serve(async (req) => {
           request_fingerprint: key,
         });
 
-        // Log
+        // Log with actual token-based cost
+        const reqTok = reqTokensEst;
+        const respTok = estimateTokens(content);
+        const costUsd = (reqTok / 1000) * rate.in + (respTok / 1000) * rate.out;
         await supabase.from('ai_logs').insert({
           user_id: userId,
           operation: 'chat',
           model,
-          request_tokens: estimateTokens(system + userInput),
-          response_tokens: estimateTokens(content),
-          cost_usd: null,
+          request_tokens: reqTok,
+          response_tokens: respTok,
+          cost_usd: costUsd,
           latency_ms: Date.now() - t0,
           prompt_chars: (system + userInput).length,
           cache_hit: false,
