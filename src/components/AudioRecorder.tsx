@@ -173,8 +173,8 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onMemoryCreated }) => {
 
       // Local cache: avoid duplicate processing
       const encoder = new TextEncoder();
-      const data = encoder.encode(`${compressed}|${title || ''}`);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashInput = encoder.encode(`${compressed}|${title || ''}`);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', hashInput);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
       const cacheKey = `pm:${hashHex}`;
