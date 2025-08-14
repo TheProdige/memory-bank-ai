@@ -31,6 +31,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { compressText } from "@/lib/promptPreprocessor";
 import { Switch } from "@/components/ui/switch";
 import { transcribeAudioLocal } from "@/hooks/useLocalTranscription";
+import { useHybridProcessing } from "@/hooks/useHybridProcessing";
 
 interface AudioRecorderProps {
   onMemoryCreated?: (memory: any) => void;
