@@ -168,19 +168,7 @@ class PWAManager {
     addNotification({
       type: 'info',
       title: 'Installer EchoVault',
-      message: 'Installez l\'application pour une expérience optimale',
-      actions: [
-        {
-          label: 'Installer',
-          action: () => this.promptInstall(),
-          variant: 'default'
-        },
-        {
-          label: 'Plus tard',
-          action: () => {},
-          variant: 'outline'
-        }
-      ]
+      message: 'Installez l\'application pour une expérience optimale'
     });
   }
 
@@ -210,8 +198,7 @@ class PWAManager {
         addNotification({
           type: 'info',
           title: 'Installer sur iOS',
-          message: 'Appuyez sur l\'icône de partage et sélectionnez "Ajouter à l\'écran d\'accueil"',
-          persistent: true,
+          message: 'Appuyez sur l\'icône de partage et sélectionnez "Ajouter à l\'écran d\'accueil"'
         });
       }, 5000); // Show after 5 seconds
     }

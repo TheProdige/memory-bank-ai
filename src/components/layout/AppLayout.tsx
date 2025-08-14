@@ -178,7 +178,7 @@ const AppSidebar: React.FC = () => {
                       title={item.description}
                     >
                       <item.icon className="w-4 h-4" />
-                      {!collapsed && (
+                      {state !== "collapsed" && (
                         <motion.span
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
@@ -209,7 +209,7 @@ const AppSidebar: React.FC = () => {
                       title={item.description}
                     >
                       <item.icon className="w-4 h-4" />
-                      {!collapsed && (
+                      {state !== "collapsed" && (
                         <motion.span
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
