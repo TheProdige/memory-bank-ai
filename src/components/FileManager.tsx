@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { FileUpload } from '@/components/FileUpload'
 import { useFileManagement } from '@/hooks/useFileManagement'
+import { FilePreview } from '@/components/FilePreview'
 import { 
   Upload, 
   Search, 
@@ -39,15 +40,35 @@ const FileTypeIcon = ({ mimeType, className }: { mimeType: string; className?: s
 
 const StatusBadge = ({ status, isIndexed }: { status: string; isIndexed: boolean }) => {
   if (status === 'completed' && isIndexed) {
-    return <Badge variant="default" className="bg-emerald-500"><CheckCircle className="w-3 h-3 mr-1" />Indexé</Badge>
+    return (
+      <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600 text-white">
+        <CheckCircle className="w-3 h-3 mr-1" />
+        Indexé
+      </Badge>
+    )
   }
   if (status === 'processing') {
-    return <Badge variant="secondary"><Loader2 className="w-3 h-3 mr-1 animate-spin" />Traitement</Badge>
+    return (
+      <Badge variant="secondary" className="bg-blue-500 text-white">
+        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+        Traitement
+      </Badge>
+    )
   }
   if (status === 'failed') {
-    return <Badge variant="destructive"><AlertCircle className="w-3 h-3 mr-1" />Échec</Badge>
+    return (
+      <Badge variant="destructive">
+        <AlertCircle className="w-3 h-3 mr-1" />
+        Échec
+      </Badge>
+    )
   }
-  return <Badge variant="outline"><Clock className="w-3 h-3 mr-1" />En attente</Badge>
+  return (
+    <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-300">
+      <Clock className="w-3 h-3 mr-1" />
+      En attente
+    </Badge>
+  )
 }
 
 export const FileManager = ({ vaultId, onFileSelect, className }: FileManagerProps) => {
@@ -112,15 +133,15 @@ export const FileManager = ({ vaultId, onFileSelect, className }: FileManagerPro
               <Upload className="w-5 h-5" />
               Gestionnaire de fichiers
               {files.length > 0 && (
-                <Badge variant="secondary">{files.length} fichier{files.length > 1 ? 's' : ''}</Badge>
+                <Badge variant="secondary" className="ml-2">{files.length} fichier{files.length > 1 ? 's' : ''}</Badge>
               )}
             </CardTitle>
             <Button 
               onClick={() => setShowUpload(!showUpload)}
-              className="bg-gradient-gold text-primary-foreground"
+              className="bg-gradient-gold text-primary-foreground hover:bg-gradient-gold/90"
             >
               <Upload className="w-4 h-4 mr-2" />
-              Ajouter des fichiers
+              {showUpload ? 'Masquer l\'upload' : 'Ajouter des fichiers'}
             </Button>
           </div>
         </CardHeader>
@@ -245,11 +266,39 @@ export const FileManager = ({ vaultId, onFileSelect, className }: FileManagerPro
                         )}
 
                         {/* Extracted Text Preview */}
-                        {file.extractedText && (
-                          <div className="mt-2 p-2 bg-muted/50 rounded text-xs text-muted-foreground">
-                            <p className="line-clamp-2">
-                              {file.extractedText.slice(0, 150)}
-                              {file.extractedText.length > 150 && '...'}
+                        {file.extractedText && file.extractedText.trim() && (
+                          <div className="mt-2 p-3 bg-muted/50 rounded-lg border border-border/50">
+                            <div className="flex items-center gap-2 mb-2">
+                              <FileText className="w-4 h-4 text-accent" />
+                              <span className="text-sm font-medium text-foreground">Aperçu du contenu</span>
+                            </div>
+                            <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                              {file.extractedText.length > 200 
+                                ? `${file.extractedText.slice(0, 200)}...` 
+                                : file.extractedText
+                              }
+                            </p>
+                            {file.extractedText.length > 200 && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="mt-2 h-auto p-0 text-accent hover:text-accent/80"
+                                onClick={() => {
+                                  // Could open a modal with full text
+                                  console.log('Show full text for:', file.id)
+                                }}
+                              >
+                                Voir le texte complet ({file.extractedText.length} caractères)
+                              </Button>
+                            )}
+                          </div>
+                        )}
+
+                        {/* No content message */}
+                        {(!file.extractedText || !file.extractedText.trim()) && file.processingStatus === 'completed' && (
+                          <div className="mt-2 p-3 bg-muted/30 rounded-lg border border-border/30">
+                            <p className="text-sm text-muted-foreground italic">
+                              💡 Aucun texte extrait - Utilisez "Analyser via GPT/Claude" pour une extraction avancée
                             </p>
                           </div>
                         )}
@@ -257,16 +306,15 @@ export const FileManager = ({ vaultId, onFileSelect, className }: FileManagerPro
 
                       {/* Actions */}
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        {onFileSelect && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onFileSelect(file.id)}
-                            className="h-8 w-8 p-0"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                        )}
+                        <FilePreview
+                          fileId={file.id}
+                          fileName={file.originalFilename}
+                          fileType={file.mimeType}
+                          extractedText={file.extractedText}
+                          fileSize={file.fileSize}
+                          createdAt={file.createdAt}
+                          onDownload={() => handleDownload(file)}
+                        />
                         
                         <Button
                           variant="ghost"

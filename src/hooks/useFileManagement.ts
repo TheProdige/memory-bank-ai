@@ -51,26 +51,35 @@ export const useFileManagement = () => {
       // For now, we'll skip cost checking since the methods aren't available
       // In production, implement proper cost checking
 
+      console.log('Extracting text from file:', file.name, file.type)
+
       if (file.type === 'text/plain') {
-        return await file.text()
+        const text = await file.text()
+        console.log('Extracted text length:', text.length)
+        return text
       }
 
+      // For other file types, provide meaningful placeholders instead of empty text
       if (file.type === 'application/pdf') {
-        // For local PDF text extraction, you'd need a library like pdf-parse
-        // For now, we'll defer to server-side processing
-        return null
+        return `📄 Document PDF: ${file.name}\nTaille: ${(file.size / (1024 * 1024)).toFixed(1)} MB\n\nPour extraire le texte complet, utilisez l'option "Analyser via GPT/Claude".`
       }
 
-      // For images, we could implement local OCR with Tesseract.js
+      if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        return `📝 Document Word: ${file.name}\nTaille: ${(file.size / (1024 * 1024)).toFixed(1)} MB\n\nPour extraire le texte complet, utilisez l'option "Analyser via GPT/Claude".`
+      }
+
       if (file.type.startsWith('image/')) {
-        // Placeholder for OCR implementation
-        return null
+        return `🖼️ Image: ${file.name}\nType: ${file.type}\nTaille: ${(file.size / (1024 * 1024)).toFixed(1)} MB\n\nPour extraction OCR, utilisez l'option "Analyser via GPT/Claude".`
       }
 
-      return null
+      if (file.type.startsWith('audio/') || file.type.startsWith('video/')) {
+        return `🎵 Média: ${file.name}\nType: ${file.type}\nTaille: ${(file.size / (1024 * 1024)).toFixed(1)} MB\n\nPour transcription, utilisez la fonction dédiée d'EchoVault.`
+      }
+
+      return `📁 Fichier: ${file.name}\nType: ${file.type}\nTaille: ${(file.size / (1024 * 1024)).toFixed(1)} MB\n\nContenu disponible après traitement.`
     } catch (error) {
       console.error('Local text extraction failed:', error)
-      return null
+      return `❌ Erreur lors de l'extraction de texte pour ${file.name}: ${error}`
     }
   }
 

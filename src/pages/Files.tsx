@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileManager } from "@/components/FileManager";
+import { FileSystemDiagnostic } from "@/components/FileSystemDiagnostic";
 import { MetricsDashboard } from "@/components/MetricsDashboard";
 import { 
   ArrowLeft,
@@ -96,6 +97,9 @@ const Files = () => {
               </div>
             </CardContent>
           </Card>
+
+          {/* Diagnostic */}
+          <FileSystemDiagnostic />
 
           {/* File Manager */}
           <FileManager 
