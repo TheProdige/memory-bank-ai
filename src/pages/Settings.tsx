@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { UsageIndicator } from "@/components/UsageIndicator";
+import CostOptimizationDashboard from "@/components/CostOptimizationDashboard";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUsageLimits } from "@/hooks/useUsageLimits";
 import { 
@@ -21,7 +22,8 @@ import {
   Settings as SettingsIcon,
   Moon,
   Sun,
-  Monitor
+  Monitor,
+  DollarSign
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -265,6 +267,19 @@ const Settings = () => {
                   onCheckedChange={(checked) => updateSetting('autoSave', checked)}
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Cost Optimization Dashboard */}
+          <Card className="shadow-elegant">
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <DollarSign className="w-5 h-5" />
+                <span>Optimisation des coûts IA</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CostOptimizationDashboard />
             </CardContent>
           </Card>
 
