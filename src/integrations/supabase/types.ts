@@ -7,7 +7,7 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instanciate createClient with right options
+  // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "13.0.4"
@@ -92,6 +92,72 @@ export type Database = {
           request_tokens?: number | null
           response_tokens?: number | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      files: {
+        Row: {
+          bucket_name: string
+          created_at: string
+          encryption_key_id: string | null
+          extracted_text: string | null
+          file_size: number
+          filename: string
+          id: string
+          is_encrypted: boolean
+          is_indexed: boolean
+          is_local_processed: boolean
+          metadata: Json | null
+          mime_type: string
+          original_filename: string
+          processing_status: string
+          storage_path: string
+          tags: string[] | null
+          updated_at: string
+          user_id: string
+          vault_id: string | null
+        }
+        Insert: {
+          bucket_name: string
+          created_at?: string
+          encryption_key_id?: string | null
+          extracted_text?: string | null
+          file_size: number
+          filename: string
+          id?: string
+          is_encrypted?: boolean
+          is_indexed?: boolean
+          is_local_processed?: boolean
+          metadata?: Json | null
+          mime_type: string
+          original_filename: string
+          processing_status?: string
+          storage_path: string
+          tags?: string[] | null
+          updated_at?: string
+          user_id: string
+          vault_id?: string | null
+        }
+        Update: {
+          bucket_name?: string
+          created_at?: string
+          encryption_key_id?: string | null
+          extracted_text?: string | null
+          file_size?: number
+          filename?: string
+          id?: string
+          is_encrypted?: boolean
+          is_indexed?: boolean
+          is_local_processed?: boolean
+          metadata?: Json | null
+          mime_type?: string
+          original_filename?: string
+          processing_status?: string
+          storage_path?: string
+          tags?: string[] | null
+          updated_at?: string
+          user_id?: string
+          vault_id?: string | null
         }
         Relationships: []
       }
@@ -407,16 +473,16 @@ export type Database = {
     Functions: {
       has_current_user_vault_role: {
         Args: {
-          _vault_id: string
           _role: Database["public"]["Enums"]["vault_member_role"]
+          _vault_id: string
         }
         Returns: boolean
       }
       has_vault_role: {
         Args: {
+          _role: Database["public"]["Enums"]["vault_member_role"]
           _user_id: string
           _vault_id: string
-          _role: Database["public"]["Enums"]["vault_member_role"]
         }
         Returns: boolean
       }
@@ -430,15 +496,15 @@ export type Database = {
       }
       match_memory_chunks: {
         Args: {
-          query_embedding: string
-          match_threshold: number
           match_count: number
+          match_threshold: number
+          query_embedding: string
         }
         Returns: {
-          id: string
-          memory_id: string
           content: string
           distance: number
+          id: string
+          memory_id: string
         }[]
       }
     }

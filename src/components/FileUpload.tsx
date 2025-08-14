@@ -32,9 +32,9 @@ interface AudioFile {
 
 export const FileUpload = ({ 
   onFileSelected, 
-  acceptedFormats = ['.mp3', '.wav', '.m4a', '.webm', '.ogg'],
+  acceptedFormats = ['.pdf', '.docx', '.txt', '.png', '.jpg', '.jpeg', '.mp3', '.wav', '.m4a', '.mp4', '.webm'],
   maxSize = 50,
-  maxDuration = 300, // 5 minutes
+  maxDuration = 600, // 10 minutes
   disabled = false,
   allowPreview = true,
   multipleFiles = false
@@ -76,12 +76,18 @@ export const FileUpload = ({
   }, [])
 
   const validateFile = (file: File): string | null => {
-    const isAudio = file.type.startsWith('audio/')
+    const isValidType = file.type.startsWith('audio/') || 
+                       file.type.startsWith('video/') ||
+                       file.type.startsWith('image/') ||
+                       file.type === 'application/pdf' ||
+                       file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+                       file.type === 'text/plain'
+                       
     const hasValidExtension = acceptedFormats.some(format => 
       file.name.toLowerCase().endsWith(format.toLowerCase())
     )
 
-    if (!isAudio && !hasValidExtension) {
+    if (!isValidType && !hasValidExtension) {
       return `Format non supporté. Formats acceptés: ${acceptedFormats.join(', ')}`
     }
 
@@ -313,7 +319,7 @@ export const FileUpload = ({
             
             <div className="space-y-2">
               <h3 className="font-medium text-lg">
-                {isProcessing ? 'Analyse du fichier audio...' : 'Glissez votre fichier audio ici'}
+                {isProcessing ? 'Analyse du fichier...' : 'Glissez vos fichiers ici'}
               </h3>
               <p className="text-sm text-muted-foreground">
                 ou cliquez pour sélectionner {multipleFiles ? 'des fichiers' : 'un fichier'}

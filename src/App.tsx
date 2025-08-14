@@ -14,6 +14,7 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Memories from "./pages/Memories";
+import Files from "./pages/Files";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -60,6 +61,14 @@ const AppContent = () => {
             element={
               <ProtectedRoute>
                 <Memories />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/files" 
+            element={
+              <ProtectedRoute>
+                <Files />
               </ProtectedRoute>
             } 
           />

@@ -22,7 +22,8 @@ import {
   Tag,
   Heart,
   ArrowRight,
-  Brain
+  Brain,
+  FileText
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -187,10 +188,14 @@ const Dashboard = () => {
                   </div>
 
                   {/* Alternative Options */}
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-3 gap-4">
                     <Button variant="outline" className="h-12" onClick={() => navigate('/memories')}>
                       <Search className="w-4 h-4 mr-2" />
                       Mes souvenirs
+                    </Button>
+                    <Button variant="outline" className="h-12" onClick={() => navigate('/files')}>
+                      <FileText className="w-4 h-4 mr-2" />
+                      Mes fichiers
                     </Button>
                     <Button variant="outline" className="h-12" onClick={() => navigate('/settings')}>
                       <Settings className="w-4 h-4 mr-2" />
