@@ -172,51 +172,38 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ onMemoryCreated }) => {
     }
   };
 
+  const { transcribeAudio: hybridTranscribe } = useHybridProcessing();
+
   const transcribeAudio = async () => {
     if (!audioURL) return;
 
     setIsProcessing(true);
     setProgress(0);
-    setProgressStep(offlineMode ? "Transcription locale" : "Préparation de l'audio");
+    setProgressStep("Analyse de complexité...");
     
     try {
       const response = await fetch(audioURL);
       const blob = await response.blob();
 
-      if (offlineMode) {
-        toast.info("Transcription locale (aucun envoi externe)");
-        const result = await transcribeAudioLocal(blob, {
-          languageHint: "auto",
-          chunkLengthSec: 30,
-          strideLengthSec: 5,
-          onProgress: (p, step) => {
-            setProgress(p);
-            if (step) setProgressStep(step);
-          },
-        });
-        setTranscript(result.text);
-        toast.success("Transcription locale terminée");
-      } else {
-        // Convert to base64 and call the existing edge function
-        const reader = new FileReader();
-        const base64Audio: string = await new Promise((resolve, reject) => {
-          reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-          reader.onerror = () => reject(new Error('Lecture audio échouée'));
-          reader.readAsDataURL(blob);
-        });
+      // Utiliser le système hybride
+      const result = await hybridTranscribe(blob, {
+        languageHint: 'auto',
+        userTier: 'free', // TODO: récupérer du profil utilisateur
+        enableFallback: !offlineMode,
+        forceModel: offlineMode ? 'local' : undefined
+      });
 
-        const { data, error } = await supabase.functions.invoke('transcribe-audio', {
-          body: { audio: base64Audio }
-        });
+      setTranscript(result.result.text);
+      toast.success(`Transcription terminée (${result.model}${result.cost > 0 ? `, $${result.cost.toFixed(4)}` : ', gratuit'})`);
+      
+      // Log pour optimisation
+      console.log('Transcription hybride:', {
+        model: result.model,
+        complexity: result.complexity.score,
+        cost: result.cost,
+        processingTime: result.processingTime
+      });
 
-        if (error) throw new Error(error.message);
-        if (data.success) {
-          setTranscript(data.transcript);
-          toast.success("Transcription terminée");
-        } else {
-          throw new Error(data.error);
-        }
-      }
     } catch (error) {
       console.error('Transcription error:', error);
       toast.error("Erreur lors de la transcription");
