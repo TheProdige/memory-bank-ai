@@ -34,6 +34,10 @@ export interface IntentAnalysis {
   scope: string[];
   entities: string[];
   expectedAnswerType: 'short' | 'explanation' | 'list';
+  temporal?: {
+    start: Date;
+    end: Date;
+  };
 }
 
 export interface RerankedChunk {
@@ -42,6 +46,14 @@ export interface RerankedChunk {
   originalScore: number;
   score: number;
   source: string;
+  metadata?: ChunkMetadata;
+}
+
+export interface ChunkMetadata {
+  title?: string;
+  author?: string;
+  date?: string;
+  type?: string;
 }
 
 export interface Source {

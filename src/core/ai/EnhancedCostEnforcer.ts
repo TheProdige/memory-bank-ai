@@ -3,6 +3,8 @@
  */
 
 import { Logger } from '@/core/logging/Logger';
+import { CostDecision, Alternative } from './RAGTypes';
+import { EnhancedCostEnforcerMethods } from './EnhancedCostEnforcerMethods';
 
 export interface CostConstraints {
   dailyBudgetUSD: number;
@@ -23,6 +25,7 @@ export interface EnhancedCostDecision extends CostDecision {
   degradationStrategy?: DegradationStrategy;
   priority: Priority;
   alternatives: Alternative[];
+  cache_hit?: boolean;
 }
 
 export interface UsageMetrics {
@@ -51,7 +54,7 @@ export interface UsageMetrics {
 }
 
 type Priority = 'critical' | 'high' | 'medium' | 'low';
-type DegradationStrategy = 'local-only' | 'cache-only' | 'simple-model' | 'defer' | 'reject';
+type DegradationStrategy = 'local-only' | 'cache-only' | 'simple-model' | 'defer' | 'reject' | 'proceed';
 
 export class EnhancedCostEnforcer {
   private static instance: EnhancedCostEnforcer;
@@ -112,26 +115,26 @@ export class EnhancedCostEnforcer {
       // 2. Cache check with intelligent key generation
       const cacheKey = this.generateIntelligentCacheKey(operation, estimatedTokens, userId);
       if (this.constraints.enableCaching) {
-        const cached = this.getCachedDecision(cacheKey);
+        const cached = EnhancedCostEnforcerMethods.getCachedDecision(this.cache, cacheKey);
         if (cached) {
-          this.updateMetrics('cache_hit', startTime);
+          EnhancedCostEnforcerMethods.updateMetrics(this.metrics, 'cache_hit', startTime);
           return { ...cached, cache_hit: true };
         }
       }
 
       // 3. Rate limiting with priority consideration
-      if (this.isRateLimited(priority)) {
+      if (EnhancedCostEnforcerMethods.isRateLimited(this.requestHistory, priority, this.constraints.hourlyRateLimit)) {
         const delay = this.computeBackoffDelay(priority);
         return this.createDecision(false, 'Rate limited', 'defer', priority, {
           backoffDelay: delay,
-          alternatives: this.generateAlternatives(operation, priority)
+          alternatives: EnhancedCostEnforcerMethods.generateAlternatives(operation, priority)
         });
       }
 
       // 4. Budget analysis with priority quotas
-      const budgetAnalysis = await this.analyzeBudget(estimatedCost, priority, userId);
+      const budgetAnalysis = await EnhancedCostEnforcerMethods.analyzeBudget(this.metrics.costs, estimatedCost, priority, userId);
       if (!budgetAnalysis.allowed) {
-        return this.handleBudgetExceeded(budgetAnalysis, operation, priority, estimatedCost);
+        return EnhancedCostEnforcerMethods.handleBudgetExceeded(budgetAnalysis, operation, priority, estimatedCost);
       }
 
       // 5. Batching for non-critical operations
@@ -147,7 +150,7 @@ export class EnhancedCostEnforcer {
       const modelDecision = this.selectOptimalModel(operation, estimatedCost, priority, budgetAnalysis.remainingBudget);
 
       // 7. Track request and update metrics
-      this.trackRequest(operation, estimatedCost, priority, userId);
+      EnhancedCostEnforcerMethods.trackRequest(this.requestHistory, operation, estimatedCost, priority, userId);
       
       const decision = this.createDecision(true, 'Approved', 'proceed', priority, {
         model: modelDecision.model,
@@ -157,14 +160,14 @@ export class EnhancedCostEnforcer {
 
       // 8. Cache decision
       if (this.constraints.enableCaching) {
-        this.cacheDecision(cacheKey, decision);
+        EnhancedCostEnforcerMethods.cacheDecision(this.cache, cacheKey, decision);
       }
 
-      this.updateMetrics('success', startTime);
+      EnhancedCostEnforcerMethods.updateMetrics(this.metrics, 'success', startTime);
       return decision;
 
     } catch (error) {
-      this.updateMetrics('error', startTime);
+      EnhancedCostEnforcerMethods.updateMetrics(this.metrics, 'error', startTime);
       this.circuitBreaker.recordFailure();
       
       Logger.error('Cost enforcement failed', { error, operation, priority });
@@ -236,15 +239,15 @@ export class EnhancedCostEnforcer {
     });
 
     // Group by operation type for efficient processing
-    const grouped = this.groupBatchItems(items);
+    const grouped = EnhancedCostEnforcerMethods.groupBatchItems(items);
     
     for (const [operation, operationItems] of grouped) {
       try {
-        await this.executeBatchOperation(operation, operationItems);
-        this.updateMetrics('batch_success', 0, operationItems.length);
+        await EnhancedCostEnforcerMethods.executeBatchOperation(operation, operationItems);
+        EnhancedCostEnforcerMethods.updateMetrics(this.metrics, 'batch_success', 0, operationItems.length);
       } catch (error) {
         Logger.error('Batch operation failed', { error, operation, itemCount: operationItems.length });
-        this.updateMetrics('batch_error', 0, operationItems.length);
+        EnhancedCostEnforcerMethods.updateMetrics(this.metrics, 'batch_error', 0, operationItems.length);
       }
     }
   }
@@ -333,13 +336,13 @@ export class EnhancedCostEnforcer {
 
   private startPeriodicTasks(): void {
     // Reset hourly metrics
-    setInterval(() => this.resetHourlyMetrics(), 60 * 60 * 1000);
+    setInterval(() => EnhancedCostEnforcerMethods.resetHourlyMetrics(this.metrics), 60 * 60 * 1000);
     
     // Cleanup expired cache entries
-    setInterval(() => this.cleanupCache(), 15 * 60 * 1000);
+    setInterval(() => EnhancedCostEnforcerMethods.cleanupCache(this.cache), 15 * 60 * 1000);
     
     // Process idle batches
-    setInterval(() => this.processIdleBatches(), 30 * 1000);
+    setInterval(() => EnhancedCostEnforcerMethods.processIdleBatches(this.batchQueues), 30 * 1000);
   }
 }
 
@@ -397,6 +400,13 @@ class BatchQueue {
     this.processingScheduled = false;
     return items;
   }
+}
+
+interface RequestEntry {
+  timestamp: number;
+  cost: number;
+  operation: string;
+  userId?: string;
 }
 
 interface BatchItem {
