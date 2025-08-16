@@ -596,15 +596,15 @@ export const FileManager = React.memo<FileManagerProps>(({
               <Filter className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
               <span className="text-sm font-medium">Filtrer :</span>
               {(['all', 'images', 'documents', 'audio', 'video'] as FilterOption[]).map((filter) => (
-              <Button
+              <AccessibleButton
                 key={filter}
                 variant={filterBy === filter ? 'secondary' : 'outline'}
-                  size="sm"
-                  onClick={() => setFilterBy(filter)}
-                  aria-pressed={filterBy === filter}
-                >
-                  {filter === 'all' ? 'Tout' : filter.charAt(0).toUpperCase() + filter.slice(1)}
-                </AccessibleButton>
+                size="sm"
+                onClick={() => setFilterBy(filter)}
+                aria-pressed={filterBy === filter}
+              >
+                {filter === 'all' ? 'Tout' : filter.charAt(0).toUpperCase() + filter.slice(1)}
+              </AccessibleButton>
               ))}
             </div>
             
@@ -612,23 +612,23 @@ export const FileManager = React.memo<FileManagerProps>(({
               <SortAsc className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
               <span className="text-sm font-medium">Trier :</span>
               {(['name', 'size', 'date', 'type'] as SortOption[]).map((sort) => (
-              <Button
+              <AccessibleButton
                 key={sort}
                 variant={sortBy === sort ? 'secondary' : 'outline'}
-                  size="sm"
-                  onClick={() => handleSortChange(sort)}
-                  aria-pressed={sortBy === sort}
-                  aria-label={`Trier par ${sort}${sortBy === sort ? `, actuellement ${sortDirection === 'asc' ? 'croissant' : 'décroissant'}` : ''}`}
-                >
-                  {sort === 'name' ? 'Nom' : 
-                   sort === 'size' ? 'Taille' :
-                   sort === 'date' ? 'Date' : 'Type'}
-                  {sortBy === sort && (
-                    <span className="ml-1" aria-hidden="true">
-                      {sortDirection === 'asc' ? '↑' : '↓'}
-                    </span>
-                  )}
-                </AccessibleButton>
+                size="sm"
+                onClick={() => handleSortChange(sort)}
+                aria-pressed={sortBy === sort}
+                aria-label={`Trier par ${sort}${sortBy === sort ? `, actuellement ${sortDirection === 'asc' ? 'croissant' : 'décroissant'}` : ''}`}
+              >
+                {sort === 'name' ? 'Nom' : 
+                 sort === 'size' ? 'Taille' :
+                 sort === 'date' ? 'Date' : 'Type'}
+                {sortBy === sort && (
+                  <span className="ml-1" aria-hidden="true">
+                    {sortDirection === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
+              </AccessibleButton>
               ))}
             </div>
           </div>

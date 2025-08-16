@@ -117,7 +117,7 @@ class ErrorBoundaryClass extends Component<ErrorBoundaryProps, ErrorBoundaryStat
     }
   }
 
-  private static categorizeError(error: Error): ErrorType {
+  public static categorizeError(error: Error): ErrorType {
     const message = error.message.toLowerCase()
     const name = error.name.toLowerCase()
     
@@ -312,7 +312,8 @@ Timestamp: ${new Date().toISOString()}
     }
 
     const { fallback: Fallback, showReportButton = true, level = 'component' } = this.props
-    const { error, errorType, showDetails, retryCount, maxRetries = 3, errorId } = this.state
+    const { error, errorType, showDetails, retryCount, errorId } = this.state
+    const maxRetries = 3
 
     // Use custom fallback if provided
     if (Fallback && error) {
@@ -481,7 +482,7 @@ export class AsyncErrorBoundary extends Component<
       hasError: true,
       error,
       errorInfo,
-      errorType: this.categorizeError(error),
+      errorType: ErrorBoundaryClass.categorizeError(error),
       errorId: `async_err_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
     })
     
