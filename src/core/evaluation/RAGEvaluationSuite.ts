@@ -98,7 +98,7 @@ export class RAGEvaluationSuite {
     const summary = RAGEvaluationMethods.generateSummary(metrics, results);
     
     return {
-      overallScore: metrics.quality.overall,
+      overallScore: metrics.quality.overall || 0,
       metrics,
       summary,
       testResults: results,
