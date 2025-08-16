@@ -4,7 +4,7 @@
  */
 
 import { Logger } from '@/core/logging/Logger';
-import { costEnforcer } from '@/core/ai/CostEnforcer';
+import { enhancedCostEnforcer } from './EnhancedCostEnforcer';
 import { supabase } from '@/integrations/supabase/client';
 import { InputValidator } from '@/lib/security/InputValidator';
 import { 
@@ -224,12 +224,12 @@ export class RAGOrchestrator {
     const estimatedTokens = RAGUtilityMethods.estimateTokens(intent);
     const estimatedCost = RAGUtilityMethods.estimateCost(intent, estimatedTokens);
     
-    return costEnforcer.shouldProceed(
-      'rag_query',
-      estimatedTokens,
-      estimatedCost,
-      intent.complexity > 0.7 ? 'high' : 'medium'
-    );
+      return enhancedCostEnforcer.shouldProceed(
+        'rag_query',
+        estimatedTokens,
+        estimatedCost,
+        intent.complexity > 0.7 ? 'high' : 'medium'
+      );
   }
 
   private planRetrieval(intent: IntentAnalysis, options?: RAGOptions): RetrievalPlan {

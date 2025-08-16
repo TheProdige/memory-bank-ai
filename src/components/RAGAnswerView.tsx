@@ -19,10 +19,9 @@ import {
   TrendingUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useOptimizedRAG } from '@/hooks/useOptimizedRAG';
-import { generateLocalSummary, LocalModelResult } from '@/lib/localModels';
+import { useRAGSystem } from '@/hooks/useRAGSystem';
+import { generateLocalSummary } from '@/lib/localModels';
 import { analyzeComplexity } from '@/lib/complexityDetector';
-import { costEnforcer } from '@/core/ai/CostEnforcer';
 import { Logger } from '@/core/logging/Logger';
 import { cn } from '@/lib/utils';
 
@@ -56,7 +55,7 @@ export const RAGAnswerView: React.FC<RAGAnswerViewProps> = ({
   onSourceClick,
   className
 }) => {
-  const { searchMemories, loading } = useOptimizedRAG();
+  const { query: ragQuery, loading } = useRAGSystem();
   const [response, setResponse] = useState<RAGResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -74,29 +73,11 @@ export const RAGAnswerView: React.FC<RAGAnswerViewProps> = ({
       // 1. Analyser la complexité de la requête
       const complexity = analyzeComplexity(query);
       
-      // 2. Vérifier les contraintes de coût
-      const costDecision = await costEnforcer.shouldProceed(
-        'rag_query',
-        500, // Estimation tokens
-        0.02, // Estimation coût
-        'medium'
-      );
-
-      if (!costDecision.allowed) {
-        // Mode dégradé : réponse courte uniquement
-        return generateDegradedResponse(query, costDecision.reason);
-      }
-
-      // 3. Recherche des chunks pertinents
+      // 2. Execute RAG query
       const startTime = performance.now();
-      const ragResult = await searchMemories(query, {
-        topK: 5,
-        enableDeduplication: true,
-        enableReranking: true,
-        useLocalSearch: true
-      });
+      const ragResult = await ragQuery(query);
 
-      if (ragResult.chunks.length === 0) {
+      if (!ragResult) {
         setResponse({
           answer: "Aucune information pertinente trouvée dans vos mémoires.",
           summary: "Recherche sans résultat",
@@ -112,52 +93,36 @@ export const RAGAnswerView: React.FC<RAGAnswerViewProps> = ({
         return;
       }
 
-      // 4. Générer la réponse locale
-      const combinedContext = ragResult.chunks
-        .map(chunk => chunk.content)
-        .join('\n\n')
-        .slice(0, 1500); // Limiter la taille
-
-      const summaryResult = generateLocalSummary(combinedContext, {
-        maxLength: 200,
-        style: 'concise'
-      });
-
-      // 5. Extraire tags et métadonnées
-      const tags = extractTags(combinedContext);
-      const sources = ragResult.chunks.map(chunk => ({
-        id: chunk.id,
-        title: `Source: ${chunk.source}`,
-        excerpt: chunk.content.slice(0, 150) + '...',
-        relevanceScore: chunk.score,
-        memoryId: chunk.id
+      // Convert RAG response to our format
+      const tags = extractTags(ragResult.answer);
+      const sources = ragResult.sources.map(source => ({
+        id: source.id,
+        title: source.title,
+        excerpt: source.content.slice(0, 150) + '...',
+        relevanceScore: 0.8, // Default score
+        memoryId: source.id
       }));
 
-      const processingTime = performance.now() - startTime;
-
       const finalResponse: RAGResponse = {
-        answer: summaryResult.text,
-        summary: generateQuerySummary(query, ragResult.chunks.length),
+        answer: ragResult.answer,
+        summary: generateQuerySummary(query, ragResult.sources.length),
         tags,
         sources,
-        confidence: summaryResult.confidence,
-        processingTime,
-        model: ragResult.model,
-        totalTokens: ragResult.totalTokens,
-        cost: 0, // Coût local = 0
-        optimizations: ragResult.optimizationApplied
+        confidence: ragResult.confidence,
+        processingTime: ragResult.metadata.processingTime,
+        model: ragResult.metadata.model as any,
+        totalTokens: ragResult.metadata.tokensUsed,
+        cost: ragResult.metadata.cost,
+        optimizations: ['rag-orchestrator']
       };
 
       setResponse(finalResponse);
 
-      // 6. Mettre en cache le résultat
-      costEnforcer.cacheResult('rag_query', 500, finalResponse, 3600000); // 1h TTL
-
       Logger.info('RAG search completed', {
         query,
-        chunksFound: ragResult.chunks.length,
-        confidence: summaryResult.confidence,
-        processingTime
+        sourcesFound: ragResult.sources.length,
+        confidence: ragResult.confidence,
+        processingTime: ragResult.metadata.processingTime
       });
 
     } catch (err) {
