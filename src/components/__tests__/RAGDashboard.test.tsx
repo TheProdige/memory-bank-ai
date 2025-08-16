@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from './test-utils';
 import { RAGDashboard } from '../RAGDashboard';
 import { useRAGSystem } from '@/hooks/useRAGSystem';
 
@@ -58,31 +58,31 @@ describe('RAGDashboard', () => {
     it('should render dashboard header', () => {
       render(<RAGDashboard />);
       
-      expect(screen.getByText('RAG System Dashboard')).toBeInTheDocument();
-      expect(screen.getByText('Surveillance et évaluation du système RAG')).toBeInTheDocument();
+      expect(screen.getByText('RAG System Dashboard')).toBeDefined();
+      expect(screen.getByText('Surveillance et évaluation du système RAG')).toBeDefined();
     });
 
     it('should render quick stats cards', () => {
       render(<RAGDashboard />);
       
-      expect(screen.getByText('Taux de succès')).toBeInTheDocument();
-      expect(screen.getByText('Latence moyenne')).toBeInTheDocument();
-      expect(screen.getByText('Efficacité coût')).toBeInTheDocument();
-      expect(screen.getByText('Satisfaction')).toBeInTheDocument();
+      expect(screen.getByText('Taux de succès')).toBeDefined();
+      expect(screen.getByText('Latence moyenne')).toBeDefined();
+      expect(screen.getByText('Efficacité coût')).toBeDefined();
+      expect(screen.getByText('Satisfaction')).toBeDefined();
     });
 
     it('should render performance metrics', () => {
       render(<RAGDashboard />);
       
-      expect(screen.getByText('94.2%')).toBeInTheDocument();
-      expect(screen.getByText('245ms')).toBeInTheDocument();
+      expect(screen.getByText('94.2%')).toBeDefined();
+      expect(screen.getByText('245ms')).toBeDefined();
     });
 
     it('should render evaluation button', () => {
       render(<RAGDashboard />);
       
       const evaluationButton = screen.getByRole('button', { name: /lancer l'évaluation/i });
-      expect(evaluationButton).toBeInTheDocument();
+      expect(evaluationButton).toBeDefined();
     });
   });
 
@@ -90,10 +90,10 @@ describe('RAGDashboard', () => {
     it('should render all tabs', () => {
       render(<RAGDashboard />);
       
-      expect(screen.getByRole('tab', { name: /performance/i })).toBeInTheDocument();
-      expect(screen.getByRole('tab', { name: /coûts/i })).toBeInTheDocument();
-      expect(screen.getByRole('tab', { name: /qualité/i })).toBeInTheDocument();
-      expect(screen.getByRole('tab', { name: /évaluation/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /performance/i })).toBeDefined();
+      expect(screen.getByRole('tab', { name: /coûts/i })).toBeDefined();
+      expect(screen.getByRole('tab', { name: /qualité/i })).toBeDefined();
+      expect(screen.getByRole('tab', { name: /évaluation/i })).toBeDefined();
     });
 
     it('should switch between tabs', () => {
@@ -102,8 +102,8 @@ describe('RAGDashboard', () => {
       const costsTab = screen.getByRole('tab', { name: /coûts/i });
       fireEvent.click(costsTab);
       
-      expect(screen.getByText('Coûts par jour')).toBeInTheDocument();
-      expect(screen.getByText('Économies réalisées')).toBeInTheDocument();
+      expect(screen.getByText('Coûts par jour')).toBeDefined();
+      expect(screen.getByText('Économies réalisées')).toBeDefined();
     });
 
     it('should show quality metrics in quality tab', () => {
@@ -112,9 +112,9 @@ describe('RAGDashboard', () => {
       const qualityTab = screen.getByRole('tab', { name: /qualité/i });
       fireEvent.click(qualityTab);
       
-      expect(screen.getByText('Score F1')).toBeInTheDocument();
-      expect(screen.getByText('ROUGE-L')).toBeInTheDocument();
-      expect(screen.getByText('Groundedness')).toBeInTheDocument();
+      expect(screen.getByText('Score F1')).toBeDefined();
+      expect(screen.getByText('ROUGE-L')).toBeDefined();
+      expect(screen.getByText('Groundedness')).toBeDefined();
     });
   });
 
@@ -122,8 +122,8 @@ describe('RAGDashboard', () => {
     it('should render charts in performance tab', () => {
       render(<RAGDashboard />);
       
-      expect(screen.getByTestId('line-chart')).toBeInTheDocument();
-      expect(screen.getByTestId('pie-chart')).toBeInTheDocument();
+      expect(screen.getByTestId('line-chart')).toBeDefined();
+      expect(screen.getByTestId('pie-chart')).toBeDefined();
     });
 
     it('should render cost chart in costs tab', () => {
@@ -132,7 +132,7 @@ describe('RAGDashboard', () => {
       const costsTab = screen.getByRole('tab', { name: /coûts/i });
       fireEvent.click(costsTab);
       
-      expect(screen.getByTestId('bar-chart')).toBeInTheDocument();
+      expect(screen.getByTestId('bar-chart')).toBeDefined();
     });
   });
 
@@ -183,8 +183,8 @@ describe('RAGDashboard', () => {
       fireEvent.click(evaluationButton);
       
       await waitFor(() => {
-        expect(screen.getByText(/évaluation terminée avec succès/i)).toBeInTheDocument();
-        expect(screen.getByText('85%')).toBeInTheDocument(); // Overall score
+        expect(screen.getByText('évaluation terminée avec succès')).toBeDefined();
+        expect(screen.getByText('85%')).toBeDefined(); // Overall score
       });
     });
 
@@ -194,7 +194,7 @@ describe('RAGDashboard', () => {
       const evaluationTab = screen.getByRole('tab', { name: /évaluation/i });
       fireEvent.click(evaluationTab);
       
-      expect(screen.getByText('Aucune évaluation récente')).toBeInTheDocument();
+      expect(screen.getByText('Aucune évaluation récente')).toBeDefined();
     });
   });
 
@@ -205,13 +205,13 @@ describe('RAGDashboard', () => {
       const costsTab = screen.getByRole('tab', { name: /coûts/i });
       fireEvent.click(costsTab);
       
-      expect(screen.getByText('Cache local')).toBeInTheDocument();
-      expect(screen.getByText('Déduplication')).toBeInTheDocument();
-      expect(screen.getByText('Modèles locaux')).toBeInTheDocument();
+      expect(screen.getByText('Cache local')).toBeDefined();
+      expect(screen.getByText('Déduplication')).toBeDefined();
+      expect(screen.getByText('Modèles locaux')).toBeDefined();
       
-      expect(screen.getByText('-45%')).toBeInTheDocument();
-      expect(screen.getByText('-23%')).toBeInTheDocument();
-      expect(screen.getByText('-67%')).toBeInTheDocument();
+      expect(screen.getByText('-45%')).toBeDefined();
+      expect(screen.getByText('-23%')).toBeDefined();
+      expect(screen.getByText('-67%')).toBeDefined();
     });
   });
 

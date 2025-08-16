@@ -7,6 +7,12 @@ import { renderHook, act } from '@testing-library/react';
 import { useRAGSystem } from '../useRAGSystem';
 import { useAuth } from '@/contexts/AuthContext';
 
+// Mock waitFor for this test file
+const waitFor = async (callback: () => void) => {
+  await new Promise(resolve => setTimeout(resolve, 0));
+  callback();
+};
+
 // Mock dependencies
 vi.mock('@/contexts/AuthContext');
 vi.mock('../RAGIntegrator');
