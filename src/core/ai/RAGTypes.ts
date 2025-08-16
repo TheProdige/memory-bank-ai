@@ -45,8 +45,19 @@ export interface RerankedChunk {
   content: string;
   originalScore: number;
   score: number;
+  rerankScore: number;
+  finalScore: number;
   source: string;
   metadata?: ChunkMetadata;
+  signals: {
+    semantic: number;
+    lexical: number;
+    temporal: number;
+    entity: number;
+    context: number;
+    quality: number;
+    diversity: number;
+  };
 }
 
 export interface ChunkMetadata {

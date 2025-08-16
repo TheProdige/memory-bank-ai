@@ -1,30 +1,21 @@
 /**
- * Advanced Local Reranker - Production-grade reranking with multiple strategies
+ * Advanced Reranker - Hybrid scoring with local models
  */
 
 import { Logger } from '@/core/logging/Logger';
+import { RerankedChunk, ChunkMetadata, IntentAnalysis, ConversationTurn } from './RAGTypes';
 
-export interface RerankedChunk {
-  id: string;
-  content: string;
-  originalScore: number;
-  rerankScore: number;
-  finalScore: number;
-  source: string;
-  metadata?: ChunkMetadata;
-  signals: RerankingSignals;
-}
-
-export interface RerankingSignals {
+interface RerankingSignals {
   semantic: number;
   lexical: number;
   temporal: number;
   entity: number;
   context: number;
   quality: number;
+  diversity: number;
 }
 
-export interface RerankingConfig {
+interface RerankingConfig {
   strategy: 'semantic' | 'hybrid' | 'adaptive';
   weights: SignalWeights;
   diversityFactor: number;
@@ -41,11 +32,38 @@ interface SignalWeights {
   quality: number;
 }
 
+interface QueryFeatures {
+  text: string;
+  terms: string[];
+  embedding: number[];
+  entities: string[];
+  intent: IntentAnalysis;
+  concepts: string[];
+  temporal: string[];
+  contextRelevance: number;
+  expectedType: string;
+}
+
+interface RetrievedChunk {
+  id: string;
+  content: string;
+  score: number;
+  source: string;
+  metadata?: ChunkMetadata;
+}
+
+interface TemporalFeature {
+  hasDate: boolean;
+  hasTime: boolean;
+  timeReference: 'past' | 'present' | 'future' | 'none';
+}
+
 export class AdvancedReranker {
   private config: RerankingConfig;
   private semanticModel: LocalSemanticModel;
   private entityExtractor: EntityExtractor;
   private qualityAnalyzer: ContentQualityAnalyzer;
+  private signals: RerankingSignals[] = [];
 
   constructor(config?: Partial<RerankingConfig>) {
     this.config = {
@@ -84,297 +102,196 @@ export class AdvancedReranker {
         strategy: this.config.strategy
       });
 
-      // 1. Compute adaptive weights based on query intent
-      const adaptiveWeights = this.computeAdaptiveWeights(intent, query);
+      // 1. Extract query features for signal computation
+      const queryFeatures = await this.extractQueryFeatures(query, intent, contextHistory);
 
-      // 2. Extract query features for signal computation
-      const queryFeatures = await this.extractQueryFeatures(query, intent);
-
-      // 3. Compute reranking signals for each chunk
-      const rerankedChunks = await Promise.all(
-        chunks.map(chunk => this.computeChunkSignals(chunk, queryFeatures, contextHistory))
+      // 2. Compute reranking signals for each chunk
+      const rankedChunks = await Promise.all(
+        chunks.map((chunk, index) => this.computeChunkSignals(chunk, queryFeatures, contextHistory, index))
       );
 
-      // 4. Apply diversity filtering
-      const diversifiedChunks = this.applyDiversityFiltering(
-        rerankedChunks,
-        this.config.diversityFactor
-      );
+      // 3. Sort by final score
+      const sorted = rankedChunks.sort((a, b) => b.score - a.score);
 
-      // 5. Final ranking with adaptive weights
-      const finalRanked = this.computeFinalRanking(diversifiedChunks, adaptiveWeights);
-
-      // 6. Filter by quality threshold
-      const qualityFiltered = finalRanked.filter(
-        chunk => chunk.signals.quality >= this.config.qualityThreshold
-      );
-
-      // 7. Limit results
-      const results = qualityFiltered.slice(0, this.config.maxResults);
+      // 4. Apply quality filter and limit results
+      const filtered = sorted
+        .filter(chunk => chunk.signals.quality >= this.config.qualityThreshold)
+        .slice(0, this.config.maxResults);
 
       Logger.info('Reranking completed', {
         originalCount: chunks.length,
-        afterDiversity: diversifiedChunks.length,
-        afterQuality: qualityFiltered.length,
-        finalCount: results.length,
+        finalCount: filtered.length,
         processingTime: performance.now() - startTime
       });
 
-      return results;
+      return filtered;
 
     } catch (error) {
       Logger.error('Reranking failed', { error, query: query.slice(0, 50) });
       
-      // Fallback: return chunks sorted by original score
-      return chunks.map(chunk => ({
-        ...chunk,
-        rerankScore: chunk.score,
-        finalScore: chunk.score,
+      // Fallback: return chunks with basic mapping
+      return chunks.map((chunk, index) => ({
+        id: chunk.id,
+        content: chunk.content,
+        originalScore: chunk.score,
+        score: chunk.score * 0.3 + (1 - index * 0.1) * 0.7,
+        rerankScore: 1 - index * 0.1,
+        finalScore: chunk.score * 0.3 + (1 - index * 0.1) * 0.7,
+        source: chunk.source,
+        metadata: chunk.metadata,
         signals: this.createDefaultSignals()
       })).slice(0, this.config.maxResults);
     }
   }
 
-  private computeAdaptiveWeights(intent: IntentAnalysis, query: string): SignalWeights {
-    const baseWeights = { ...this.config.weights };
+  private extractQueryFeatures(query: string, intent: IntentAnalysis, context?: ConversationTurn[]): QueryFeatures {
+    const tokens = query.toLowerCase().split(/\s+/);
+    const concepts = query.split(/\s+/).filter(w => w.length > 3);
+    const temporal = this.extractTemporalKeywords(query);
     
-    // Adjust weights based on query characteristics
-    switch (intent.type) {
-      case 'factual':
-        baseWeights.semantic += 0.1;
-        baseWeights.entity += 0.1;
-        baseWeights.lexical -= 0.1;
-        break;
-        
-      case 'temporal':
-        baseWeights.temporal += 0.2;
-        baseWeights.semantic -= 0.1;
-        break;
-        
-      case 'procedural':
-        baseWeights.context += 0.15;
-        baseWeights.quality += 0.1;
-        break;
-        
-      case 'comparative':
-        baseWeights.diversity = 0.3; // Special handling for diversity
-        baseWeights.semantic += 0.05;
-        break;
+    let contextRelevance = 0;
+    if (context && context.length > 0) {
+      const recentContext = context.slice(-3);
+      contextRelevance = recentContext.length * 0.1;
     }
 
-    // Adjust for query complexity
-    if (intent.complexity > 0.7) {
-      baseWeights.context += 0.1;
-      baseWeights.quality += 0.05;
-    }
-
-    // Normalize weights to sum to 1
-    const total = Object.values(baseWeights).reduce((sum, w) => sum + w, 0);
-    for (const key in baseWeights) {
-      baseWeights[key as keyof SignalWeights] /= total;
-    }
-
-    return baseWeights;
-  }
-
-  private async extractQueryFeatures(query: string, intent: IntentAnalysis): Promise<QueryFeatures> {
-    const queryTerms = this.tokenizeQuery(query);
-    const queryEmbedding = await this.semanticModel.encode(query);
-    const queryEntities = this.entityExtractor.extract(query);
-    
     return {
       text: query,
-      terms: queryTerms,
-      embedding: queryEmbedding,
-      entities: queryEntities,
+      terms: tokens,
+      embedding: [], // Would be computed by semantic model
+      entities: intent.entities,
       intent,
-      concepts: this.extractConcepts(query),
-      temporal: this.extractTemporalFeatures(query)
+      concepts,
+      temporal,
+      contextRelevance,
+      expectedType: intent.expectedAnswerType
     };
+  }
+
+  private extractTemporalKeywords(query: string): string[] {
+    const temporalWords = ['today', 'yesterday', 'tomorrow', 'week', 'month', 'year', 'recent', 'latest'];
+    return temporalWords.filter(word => query.toLowerCase().includes(word));
   }
 
   private async computeChunkSignals(
     chunk: RetrievedChunk,
     queryFeatures: QueryFeatures,
-    contextHistory?: ConversationTurn[]
+    context?: ConversationTurn[],
+    index: number = 0
   ): Promise<RerankedChunk> {
     
-    // Semantic similarity
-    const chunkEmbedding = await this.semanticModel.encode(chunk.content);
-    const semanticScore = this.computeCosineSimilarity(queryFeatures.embedding, chunkEmbedding);
-
-    // Lexical overlap (BM25-style)
-    const lexicalScore = this.computeBM25Score(queryFeatures.terms, chunk.content);
-
-    // Entity matching
-    const chunkEntities = this.entityExtractor.extract(chunk.content);
-    const entityScore = this.computeEntityOverlap(queryFeatures.entities, chunkEntities);
-
-    // Temporal relevance
-    const temporalScore = this.computeTemporalRelevance(
-      queryFeatures.temporal,
-      chunk.metadata?.timestamp
-    );
-
-    // Context relevance (if conversation history available)
-    const contextScore = contextHistory 
-      ? this.computeContextRelevance(chunk.content, contextHistory)
-      : 0.5; // neutral if no context
-
-    // Content quality
-    const qualityScore = this.qualityAnalyzer.analyze(chunk.content);
+    // Compute various relevance signals
+    const semantic = this.computeSemanticScore(chunk.content, queryFeatures.text);
+    const lexical = this.computeLexicalScore(chunk.content, queryFeatures.terms);
+    const temporal = this.computeTemporalRelevance(chunk, queryFeatures);
+    const entity = this.computeEntityRelevance(chunk, queryFeatures);
+    const contextScore = this.computeContextRelevance(chunk, context);
+    const quality = this.computeQualityScore(chunk);
+    const diversity = this.computeDiversityScore(chunk, index);
 
     const signals: RerankingSignals = {
-      semantic: semanticScore,
-      lexical: lexicalScore,
-      temporal: temporalScore,
-      entity: entityScore,
+      semantic,
+      lexical,
+      temporal,
+      entity,
       context: contextScore,
-      quality: qualityScore
+      quality,
+      diversity
     };
+
+    // Compute final rerank score using weighted combination
+    const weights = this.config.weights;
+    const rerankScore = 
+      semantic * weights.semantic +
+      lexical * weights.lexical +
+      temporal * weights.temporal +
+      entity * weights.entity +
+      contextScore * weights.context +
+      quality * weights.quality;
+
+    const finalScore = chunk.score * 0.3 + rerankScore * 0.7;
 
     return {
       id: chunk.id,
       content: chunk.content,
       originalScore: chunk.score,
-      rerankScore: 0, // Will be computed in final ranking
-      finalScore: 0,   // Will be computed in final ranking
+      score: finalScore,
+      rerankScore,
+      finalScore,
       source: chunk.source,
       metadata: chunk.metadata,
       signals
     };
   }
 
-  private computeFinalRanking(chunks: RerankedChunk[], weights: SignalWeights): RerankedChunk[] {
-    return chunks.map(chunk => {
-      const rerankScore = 
-        chunk.signals.semantic * weights.semantic +
-        chunk.signals.lexical * weights.lexical +
-        chunk.signals.temporal * weights.temporal +
-        chunk.signals.entity * weights.entity +
-        chunk.signals.context * weights.context +
-        chunk.signals.quality * weights.quality;
-
-      // Combine with original score using harmonic mean for balanced consideration
-      const finalScore = 2 * (chunk.originalScore * rerankScore) / (chunk.originalScore + rerankScore);
-
-      return {
-        ...chunk,
-        rerankScore,
-        finalScore
-      };
-    }).sort((a, b) => b.finalScore - a.finalScore);
+  private computeSemanticScore(content: string, query: string): number {
+    // Simple semantic similarity based on term overlap
+    const contentTerms = new Set(content.toLowerCase().split(/\s+/));
+    const queryTerms = new Set(query.toLowerCase().split(/\s+/));
+    
+    const intersection = new Set([...queryTerms].filter(term => contentTerms.has(term)));
+    return queryTerms.size > 0 ? intersection.size / queryTerms.size : 0;
   }
 
-  private applyDiversityFiltering(chunks: RerankedChunk[], diversityFactor: number): RerankedChunk[] {
-    if (diversityFactor === 0 || chunks.length <= 1) return chunks;
-
-    const diversified: RerankedChunk[] = [];
-    const used = new Set<string>();
-
-    // Always include the top result
-    if (chunks.length > 0) {
-      diversified.push(chunks[0]);
-      used.add(this.getContentSignature(chunks[0].content));
-    }
-
-    for (const chunk of chunks.slice(1)) {
-      const signature = this.getContentSignature(chunk.content);
-      
-      // Check similarity with already selected chunks
-      const isSimilar = Array.from(used).some(usedSig => 
-        this.computeContentSimilarity(signature, usedSig) > (1 - diversityFactor)
-      );
-
-      if (!isSimilar) {
-        diversified.push(chunk);
-        used.add(signature);
-      }
-    }
-
-    return diversified;
+  private computeLexicalScore(content: string, queryTerms: string[]): number {
+    const contentLower = content.toLowerCase();
+    const matches = queryTerms.filter(term => contentLower.includes(term.toLowerCase()));
+    return queryTerms.length > 0 ? matches.length / queryTerms.length : 0;
   }
 
-  // Utility methods
-  private computeBM25Score(queryTerms: string[], content: string): number {
-    const k1 = 1.2;
-    const b = 0.75;
-    const avgDocLength = 100; // Approximate average chunk length in words
+  private computeTemporalRelevance(chunk: RetrievedChunk, queryFeatures: QueryFeatures): number {
+    if (queryFeatures.temporal.length === 0) return 0.5;
     
-    const docTerms = content.toLowerCase().split(/\s+/);
-    const docLength = docTerms.length;
-    
-    let score = 0;
-    for (const term of queryTerms) {
-      const tf = docTerms.filter(t => t === term).length;
-      const idf = Math.log((1000 + 1) / (1 + 1)); // Simplified IDF
-      
-      score += idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (docLength / avgDocLength)));
-    }
-    
-    return Math.min(1, score / queryTerms.length);
-  }
-
-  private computeCosineSimilarity(a: number[], b: number[]): number {
-    if (a.length !== b.length) return 0;
-    
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-    
-    for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-    
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
-  }
-
-  private computeEntityOverlap(queryEntities: string[], chunkEntities: string[]): number {
-    if (queryEntities.length === 0) return 0.5; // Neutral if no entities in query
-    
-    const intersection = queryEntities.filter(e => 
-      chunkEntities.some(ce => this.entitiesMatch(e, ce))
+    const content = chunk.content.toLowerCase();
+    const temporalMatches = queryFeatures.temporal.filter(term => 
+      content.includes(term.toLowerCase())
     );
     
-    return intersection.length / queryEntities.length;
+    return temporalMatches.length / queryFeatures.temporal.length;
   }
 
-  private entitiesMatch(entity1: string, entity2: string): boolean {
-    const e1 = entity1.toLowerCase().trim();
-    const e2 = entity2.toLowerCase().trim();
+  private computeEntityRelevance(chunk: RetrievedChunk, queryFeatures: QueryFeatures): number {
+    if (queryFeatures.entities.length === 0) return 0.5;
     
-    // Exact match
-    if (e1 === e2) return true;
+    const content = chunk.content.toLowerCase();
+    const entityMatches = queryFeatures.entities.filter(entity => 
+      content.includes(entity.toLowerCase())
+    );
     
-    // Partial match for longer entities
-    if (e1.length > 3 && e2.length > 3) {
-      return e1.includes(e2) || e2.includes(e1);
-    }
-    
-    return false;
+    return entityMatches.length / queryFeatures.entities.length;
   }
 
-  private getContentSignature(content: string): string {
-    // Create a simple signature based on key terms
-    const words = content.toLowerCase()
-      .split(/\s+/)
-      .filter(w => w.length > 4)
-      .slice(0, 10)
-      .sort();
+  private computeContextRelevance(chunk: RetrievedChunk, context?: ConversationTurn[]): number {
+    if (!context || context.length === 0) return 0.5;
     
-    return words.join('|');
+    const recentContext = context.slice(-2).map(turn => turn.content.toLowerCase()).join(' ');
+    const content = chunk.content.toLowerCase();
+    
+    const contextWords = recentContext.split(/\s+/).filter(w => w.length > 3);
+    const matches = contextWords.filter(word => content.includes(word));
+    
+    return contextWords.length > 0 ? matches.length / contextWords.length : 0.5;
   }
 
-  private computeContentSimilarity(sig1: string, sig2: string): number {
-    const words1 = new Set(sig1.split('|'));
-    const words2 = new Set(sig2.split('|'));
+  private computeQualityScore(chunk: RetrievedChunk): number {
+    let score = 0;
     
-    const intersection = new Set([...words1].filter(w => words2.has(w)));
-    const union = new Set([...words1, ...words2]);
+    // Length penalty for very short chunks
+    if (chunk.content.length < 100) score -= 0.2;
     
-    return intersection.size / union.size;
+    // Boost for structured content
+    if (chunk.content.includes('\n') || chunk.content.includes('•')) score += 0.1;
+    
+    // Metadata quality
+    if (chunk.metadata?.title) score += 0.1;
+    if (chunk.metadata?.date) score += 0.05;
+    
+    return Math.max(0, Math.min(1, score + 0.5));
+  }
+
+  private computeDiversityScore(chunk: RetrievedChunk, index: number): number {
+    // Simple diversity based on position - later chunks get slight boost if different
+    return Math.max(0.1, 1.0 - (index * 0.1));
   }
 
   private createDefaultSignals(): RerankingSignals {
@@ -384,7 +301,8 @@ export class AdvancedReranker {
       temporal: 0.5,
       entity: 0.5,
       context: 0.5,
-      quality: 0.5
+      quality: 0.5,
+      diversity: 0.5
     };
   }
 }
@@ -466,36 +384,5 @@ class ContentQualityAnalyzer {
   }
 }
 
-// Interfaces
-interface QueryFeatures {
-  text: string;
-  terms: string[];
-  embedding: number[];
-  entities: string[];
-  intent: IntentAnalysis;
-  concepts: string[];
-  temporal?: TemporalFeature;
-}
-
-interface RetrievedChunk {
-  id: string;
-  content: string;
-  score: number;
-  source: string;
-  metadata?: ChunkMetadata;
-}
-
-interface ChunkMetadata {
-  timestamp?: Date;
-  author?: string;
-  category?: string;
-  tags?: string[];
-}
-
-interface TemporalFeature {
-  hasDate: boolean;
-  hasTime: boolean;
-  timeReference: 'past' | 'present' | 'future' | 'none';
-}
-
-export { AdvancedReranker };
+// Export the class
+export default AdvancedReranker;

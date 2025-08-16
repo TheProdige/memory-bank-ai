@@ -15,7 +15,8 @@ import {
   Source, 
   RAGMetadata, 
   RerankedChunk,
-  IntentAnalysis 
+  IntentAnalysis,
+  ChunkMetadata
 } from './RAGTypes';
 import { HybridRetriever, AnswerSynthesizer, CitationValidator } from './RAGSupportingClasses';
 import { AdvancedReranker } from './AdvancedReranker';
@@ -42,12 +43,12 @@ export interface RAGResponse {
   reasoning?: ReasoningTrace;
 }
 
-export interface TextSpan {
+interface TextSpan {
   start: number;
   end: number;
 }
 
-export interface Citation {
+interface Citation {
   id: string;
   text: string;
   sourceId: string;
@@ -55,20 +56,20 @@ export interface Citation {
   spans: TextSpan[];
 }
 
-export interface ReasoningStep {
+interface ReasoningStep {
   step: string;
   reasoning: string;
   confidence: number;
 }
 
-export interface ReasoningTrace {
+interface ReasoningTrace {
   steps: ReasoningStep[];
   intentAnalysis: IntentAnalysis;
   retrievalPlan: RetrievalPlan;
   synthesisStrategy: string;
 }
 
-export interface AnswerabilityResult {
+interface AnswerabilityResult {
   canAnswer: boolean;
   confidence: number;
   reasoning: string;
@@ -215,7 +216,7 @@ export class RAGOrchestrator {
       scope,
       entities: RAGUtilityMethods.extractEntities(query),
       temporal: RAGUtilityMethods.extractTemporal(query),
-      expectedAnswerType: RAGUtilityMethods.predictAnswerType(query, type)
+      expectedAnswerType: RAGUtilityMethods.predictAnswerType(query, type) as IntentAnalysis['expectedAnswerType']
     };
   }
 
@@ -237,7 +238,7 @@ export class RAGOrchestrator {
     const filters = RAGUtilityMethods.buildFilters(intent, options);
     
     return {
-      strategy,
+      strategy: strategy as RetrievalStrategy,
       topK,
       filters,
       rerankCount: Math.min(topK * 2, 20),
@@ -313,12 +314,10 @@ export class RAGOrchestrator {
     return Math.min(1, score);
   }
 
-  private classifyQueryType(query: string): QueryType {
+  private classifyQueryType(query: string): IntentAnalysis['type'] {
     const q = query.toLowerCase();
     if (q.includes('comment') || q.includes('explain')) return 'procedural';
-    if (q.includes('pourquoi') || q.includes('why')) return 'causal';
     if (q.includes('quand') || q.includes('when')) return 'temporal';
-    if (q.includes('qui') || q.includes('who')) return 'entity';
     if (q.includes('compare') || q.includes('différence')) return 'comparative';
     return 'factual';
   }
@@ -372,8 +371,6 @@ interface RetrievalPlan {
   timeRange?: TimeRange;
 }
 
-type QueryType = 'factual' | 'procedural' | 'causal' | 'temporal' | 'entity' | 'comparative';
-type AnswerType = 'short' | 'explanation' | 'list' | 'comparison' | 'process';
 type RetrievalStrategy = 'semantic' | 'hybrid' | 'temporal' | 'entity-focused';
 
 export const ragOrchestrator = RAGOrchestrator.getInstance();

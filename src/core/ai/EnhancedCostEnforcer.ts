@@ -3,10 +3,40 @@
  */
 
 import { Logger } from '@/core/logging/Logger';
-import { CostDecision, Alternative } from './RAGTypes';
+import { costEnforcer } from './CostEnforcer';
 import { EnhancedCostEnforcerMethods } from './EnhancedCostEnforcerMethods';
 
-export interface CostConstraints {
+export type Priority = 'critical' | 'high' | 'medium' | 'low';
+export type DegradationStrategy = 'defer' | 'cache' | 'local' | 'batch' | 'proceed';
+
+export interface Alternative {
+  description: string;
+  cost: number;
+  quality: number;
+}
+
+export interface EnhancedCostDecision {
+  allowed: boolean;
+  reason: string;
+  suggestedAction: string;
+  estimatedCost: number;
+  priority: Priority;
+  alternatives: Alternative[];
+  degradationStrategy: DegradationStrategy;
+  backoffDelay?: number;
+  batchId?: string;
+  cache_hit?: boolean;
+}
+
+export interface RequestEntry {
+  timestamp: number;
+  operation: string;
+  cost: number;
+  priority: Priority;
+  userId?: string;
+}
+
+interface CostConstraints {
   dailyBudgetUSD: number;
   monthlyBudgetUSD: number;
   hourlyRateLimit: number;
@@ -15,20 +45,11 @@ export interface CostConstraints {
   enableBatching: boolean;
   circuitBreakerThreshold: number;
   backoffMultiplier: number;
-  batchWindow: number; // ms
-  priorityQuotas: Record<Priority, number>; // % of budget
+  batchWindow: number;
+  priorityQuotas: Record<Priority, number>;
 }
 
-export interface EnhancedCostDecision extends CostDecision {
-  backoffDelay?: number;
-  batchId?: string;
-  degradationStrategy?: DegradationStrategy;
-  priority: Priority;
-  alternatives: Alternative[];
-  cache_hit?: boolean;
-}
-
-export interface UsageMetrics {
+interface UsageMetrics {
   requests: {
     successful: number;
     failed: number;
@@ -53,13 +74,31 @@ export interface UsageMetrics {
   };
 }
 
-type Priority = 'critical' | 'high' | 'medium' | 'low';
-type DegradationStrategy = 'local-only' | 'cache-only' | 'simple-model' | 'defer' | 'reject' | 'proceed';
+interface BatchItem {
+  id: string;
+  operation: string;
+  tokens: number;
+  cost: number;
+  userId?: string;
+  timestamp: number;
+}
+
+interface ModelDecision {
+  model: string;
+  cost: number;
+  optimizations: string[];
+}
+
+interface CacheEntry {
+  decision: EnhancedCostDecision;
+  timestamp: number;
+  ttl: number;
+}
 
 export class EnhancedCostEnforcer {
   private static instance: EnhancedCostEnforcer;
   private constraints: CostConstraints;
-  private cache = new Map<string, CacheEntry>();
+  private decisionCache = new Map<string, CacheEntry>();
   private requestHistory: RequestEntry[] = [];
   private batchQueues = new Map<Priority, BatchQueue>();
   private circuitBreaker = new CircuitBreaker();
@@ -73,9 +112,9 @@ export class EnhancedCostEnforcer {
       maxRetries: 3,
       enableCaching: true,
       enableBatching: true,
-      circuitBreakerThreshold: 0.5, // 50% failure rate
+      circuitBreakerThreshold: 0.5,
       backoffMultiplier: 1.5,
-      batchWindow: 5000, // 5 seconds
+      batchWindow: 5000,
       priorityQuotas: {
         critical: 0.5,
         high: 0.3,
@@ -85,7 +124,7 @@ export class EnhancedCostEnforcer {
     };
 
     this.metrics = this.initializeMetrics();
-    this.startPeriodicTasks();
+    this.startMaintenanceTasks();
   }
 
   public static getInstance(): EnhancedCostEnforcer {
@@ -112,199 +151,89 @@ export class EnhancedCostEnforcer {
         });
       }
 
-      // 2. Cache check with intelligent key generation
-      const cacheKey = this.generateIntelligentCacheKey(operation, estimatedTokens, userId);
+      // 2. Cache check
+      const cacheKey = this.generateCacheKey(operation, estimatedTokens, userId);
       if (this.constraints.enableCaching) {
-        const cached = EnhancedCostEnforcerMethods.getCachedDecision(this.cache, cacheKey);
+        const cached = EnhancedCostEnforcerMethods.getCachedDecision(this.decisionCache, cacheKey);
         if (cached) {
           EnhancedCostEnforcerMethods.updateMetrics(this.metrics, 'cache_hit', startTime);
           return { ...cached, cache_hit: true };
         }
       }
 
-      // 3. Rate limiting with priority consideration
+      // 3. Rate limiting check
       if (EnhancedCostEnforcerMethods.isRateLimited(this.requestHistory, priority, this.constraints.hourlyRateLimit)) {
-        const delay = this.computeBackoffDelay(priority);
-        return this.createDecision(false, 'Rate limited', 'defer', priority, {
-          backoffDelay: delay,
-          alternatives: EnhancedCostEnforcerMethods.generateAlternatives(operation, priority)
-        });
+        const alternatives = EnhancedCostEnforcerMethods.generateAlternatives(operation, priority);
+        return this.createDecision(false, 'Rate limit exceeded', 'defer', priority, { alternatives });
       }
 
-      // 4. Budget analysis with priority quotas
+      // 4. Budget analysis
       const budgetAnalysis = await EnhancedCostEnforcerMethods.analyzeBudget(this.metrics.costs, estimatedCost, priority, userId);
       if (!budgetAnalysis.allowed) {
         return EnhancedCostEnforcerMethods.handleBudgetExceeded(budgetAnalysis, operation, priority, estimatedCost);
       }
 
-      // 5. Batching for non-critical operations
-      if (this.shouldBatch(operation, priority, estimatedCost)) {
-        const batchId = this.addToBatch(operation, estimatedTokens, estimatedCost, priority, userId);
-        return this.createDecision(false, 'Batched for optimization', 'defer', priority, {
-          batchId,
-          alternatives: ['Execute immediately (higher cost)']
-        });
-      }
-
-      // 6. Dynamic model selection
-      const modelDecision = this.selectOptimalModel(operation, estimatedCost, priority, budgetAnalysis.remainingBudget);
-
-      // 7. Track request and update metrics
+      // 5. Success - track and return
       EnhancedCostEnforcerMethods.trackRequest(this.requestHistory, operation, estimatedCost, priority, userId);
       
-      const decision = this.createDecision(true, 'Approved', 'proceed', priority, {
-        model: modelDecision.model,
-        adjustedCost: modelDecision.cost,
-        optimizations: modelDecision.optimizations
-      });
-
-      // 8. Cache decision
-      if (this.constraints.enableCaching) {
-        EnhancedCostEnforcerMethods.cacheDecision(this.cache, cacheKey, decision);
-      }
-
+      const decision = this.createDecision(true, 'Within budget and limits', 'proceed', priority);
+      
+      // Update metrics and cache
       EnhancedCostEnforcerMethods.updateMetrics(this.metrics, 'success', startTime);
+      
+      // Cache successful decisions
+      EnhancedCostEnforcerMethods.cacheDecision(this.decisionCache, cacheKey, decision);
+      
       return decision;
 
     } catch (error) {
       EnhancedCostEnforcerMethods.updateMetrics(this.metrics, 'error', startTime);
-      this.circuitBreaker.recordFailure();
+      Logger.error('Enhanced cost enforcement failed', { error, operation, priority });
       
-      Logger.error('Cost enforcement failed', { error, operation, priority });
+      // Fallback to simple enforcement
+      const fallback = await costEnforcer.shouldProceed(operation, estimatedTokens, estimatedCost, priority as any);
+      return {
+        allowed: fallback.allowed,
+        reason: fallback.reason,
+        suggestedAction: fallback.suggestedAction,
+        estimatedCost: fallback.estimatedCost,
+        priority,
+        alternatives: [],
+        degradationStrategy: fallback.allowed ? 'proceed' : 'defer'
+      };
+    }
+  }
+
+  async processBatch(items: BatchItem[]): Promise<void> {
+    const startTime = performance.now();
+    
+    try {
+      // Group by operation type
+      const grouped = EnhancedCostEnforcerMethods.groupBatchItems(items);
       
-      // Fail-safe: allow critical operations, defer others
-      return this.createDecision(
-        priority === 'critical',
-        `Enforcement error: ${error}`,
-        priority === 'critical' ? 'proceed' : 'defer',
-        priority
-      );
-    }
-  }
-
-  private shouldBatch(operation: string, priority: Priority, cost: number): boolean {
-    if (!this.constraints.enableBatching || priority === 'critical') return false;
-    
-    const batchableOps = ['embed', 'summarize', 'classify', 'extract'];
-    if (!batchableOps.includes(operation)) return false;
-    
-    const queue = this.batchQueues.get(priority);
-    return !queue || queue.items.length < 10; // Don't batch if queue is full
-  }
-
-  private addToBatch(operation: string, tokens: number, cost: number, priority: Priority, userId?: string): string {
-    let queue = this.batchQueues.get(priority);
-    if (!queue) {
-      queue = new BatchQueue(priority, this.constraints.batchWindow);
-      this.batchQueues.set(priority, queue);
-    }
-
-    const batchId = `batch_${priority}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    queue.add({
-      id: batchId,
-      operation,
-      tokens,
-      cost,
-      userId,
-      timestamp: Date.now()
-    });
-
-    // Schedule processing if not already scheduled
-    if (!queue.processingScheduled) {
-      queue.processingScheduled = true;
-      setTimeout(() => this.processBatch(priority), this.constraints.batchWindow);
-    }
-
-    return batchId;
-  }
-
-  private async processBatch(priority: Priority): Promise<void> {
-    const queue = this.batchQueues.get(priority);
-    if (!queue || queue.items.length === 0) return;
-
-    const items = queue.flush();
-    const totalCost = items.reduce((sum, item) => sum + item.cost, 0);
-    const totalTokens = items.reduce((sum, item) => sum + item.tokens, 0);
-    
-    // Batch processing reduces cost by ~30%
-    const optimizedCost = totalCost * 0.7;
-    const savings = totalCost - optimizedCost;
-
-    Logger.info('Processing batch', {
-      priority,
-      itemCount: items.length,
-      totalCost,
-      optimizedCost,
-      savings: `$${savings.toFixed(4)}`
-    });
-
-    // Group by operation type for efficient processing
-    const grouped = EnhancedCostEnforcerMethods.groupBatchItems(items);
-    
-    for (const [operation, operationItems] of grouped) {
-      try {
-        await EnhancedCostEnforcerMethods.executeBatchOperation(operation, operationItems);
-        EnhancedCostEnforcerMethods.updateMetrics(this.metrics, 'batch_success', 0, operationItems.length);
-      } catch (error) {
-        Logger.error('Batch operation failed', { error, operation, itemCount: operationItems.length });
-        EnhancedCostEnforcerMethods.updateMetrics(this.metrics, 'batch_error', 0, operationItems.length);
+      for (const [operation, operationItems] of grouped.entries()) {
+        try {
+          await EnhancedCostEnforcerMethods.executeBatchOperation(operation, operationItems);
+          EnhancedCostEnforcerMethods.updateMetrics(this.metrics, 'batch_success', startTime, operationItems.length);
+        } catch (error) {
+          EnhancedCostEnforcerMethods.updateMetrics(this.metrics, 'batch_error', startTime, operationItems.length);
+          Logger.error('Batch operation failed', { error, operation, count: operationItems.length });
+        }
       }
+      
+    } catch (error) {
+      Logger.error('Batch processing failed', { error, itemCount: items.length });
     }
-  }
-
-  private computeBackoffDelay(priority: Priority, attempt: number = 1): number {
-    const baseDelay = {
-      critical: 100,
-      high: 500,
-      medium: 1000,
-      low: 2000
-    }[priority];
-
-    const delay = baseDelay * Math.pow(this.constraints.backoffMultiplier, attempt - 1);
-    const jitter = delay * 0.1 * Math.random(); // 10% jitter
-    
-    return Math.min(delay + jitter, 30000); // Max 30 seconds
-  }
-
-  private selectOptimalModel(operation: string, cost: number, priority: Priority, remainingBudget: number): ModelDecision {
-    const models = {
-      'gpt-4o-mini': { cost: 1.0, quality: 0.7, speed: 0.9 },
-      'gpt-4.1-2025-04-14': { cost: 3.0, quality: 0.95, speed: 0.7 },
-      'local': { cost: 0.0, quality: 0.5, speed: 0.8 }
-    };
-
-    // Select based on priority, budget, and requirements
-    if (priority === 'critical' || remainingBudget > cost * 2) {
-      return {
-        model: 'gpt-4.1-2025-04-14',
-        cost: cost * models['gpt-4.1-2025-04-14'].cost,
-        optimizations: ['high-quality-model']
-      };
-    }
-
-    if (remainingBudget < cost * 0.5) {
-      return {
-        model: 'local',
-        cost: 0,
-        optimizations: ['local-fallback', 'cost-optimization']
-      };
-    }
-
-    return {
-      model: 'gpt-4o-mini',
-      cost: cost,
-      optimizations: ['balanced-model']
-    };
-  }
-
-  private generateIntelligentCacheKey(operation: string, tokens: number, userId?: string): string {
-    const temporal = Math.floor(Date.now() / 300000); // 5-minute buckets
-    const tokenBucket = Math.floor(tokens / 100) * 100; // 100-token buckets
-    return `${operation}_${tokenBucket}_${temporal}_${userId || 'anon'}`;
   }
 
   async getMetrics(): Promise<UsageMetrics> {
     return { ...this.metrics };
+  }
+
+  private generateCacheKey(operation: string, tokens: number, userId?: string): string {
+    const temporal = Math.floor(Date.now() / 300000); // 5-minute buckets
+    const tokenBucket = Math.floor(tokens / 100) * 100; // 100-token buckets
+    return `${operation}_${tokenBucket}_${temporal}_${userId || 'anon'}`;
   }
 
   private createDecision(
@@ -321,6 +250,7 @@ export class EnhancedCostEnforcer {
       estimatedCost: extras.adjustedCost || 0,
       priority,
       alternatives: extras.alternatives || [],
+      degradationStrategy: action,
       ...extras
     };
   }
@@ -334,15 +264,21 @@ export class EnhancedCostEnforcer {
     };
   }
 
-  private startPeriodicTasks(): void {
-    // Reset hourly metrics
-    setInterval(() => EnhancedCostEnforcerMethods.resetHourlyMetrics(this.metrics), 60 * 60 * 1000);
-    
-    // Cleanup expired cache entries
-    setInterval(() => EnhancedCostEnforcerMethods.cleanupCache(this.cache), 15 * 60 * 1000);
-    
-    // Process idle batches
-    setInterval(() => EnhancedCostEnforcerMethods.processIdleBatches(this.batchQueues), 30 * 1000);
+  private startMaintenanceTasks(): void {
+    // Hourly cleanup
+    setInterval(() => {
+      EnhancedCostEnforcerMethods.resetHourlyMetrics(this.metrics);
+    }, 60 * 60 * 1000);
+
+    // Cache cleanup every 5 minutes
+    setInterval(() => {
+      EnhancedCostEnforcerMethods.cleanupCache(this.decisionCache);
+    }, 5 * 60 * 1000);
+
+    // Process idle batches every 30 seconds
+    setInterval(() => {
+      EnhancedCostEnforcerMethods.processIdleBatches(this.batchQueues);
+    }, 30 * 1000);
   }
 }
 
@@ -351,7 +287,7 @@ class CircuitBreaker {
   private failureCount = 0;
   private lastFailure?: Date;
   private threshold = 5;
-  private timeout = 60000; // 1 minute
+  private timeout = 60000;
 
   recordFailure(): void {
     this.failureCount++;
@@ -400,34 +336,6 @@ class BatchQueue {
     this.processingScheduled = false;
     return items;
   }
-}
-
-interface RequestEntry {
-  timestamp: number;
-  cost: number;
-  operation: string;
-  userId?: string;
-}
-
-interface BatchItem {
-  id: string;
-  operation: string;
-  tokens: number;
-  cost: number;
-  userId?: string;
-  timestamp: number;
-}
-
-interface ModelDecision {
-  model: string;
-  cost: number;
-  optimizations: string[];
-}
-
-interface CacheEntry {
-  decision: EnhancedCostDecision;
-  timestamp: number;
-  ttl: number;
 }
 
 export const enhancedCostEnforcer = EnhancedCostEnforcer.getInstance();
